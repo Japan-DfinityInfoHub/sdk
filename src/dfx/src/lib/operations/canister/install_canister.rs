@@ -9,6 +9,7 @@ use crate::lib::waiter::waiter_with_timeout;
 use crate::util::assets::wallet_wasm;
 use crate::util::{expiry_duration, read_module_metadata};
 
+use crate::lib::models::canister_id_store::CanisterIdStore;
 use anyhow::{anyhow, bail, Context};
 use candid::Principal;
 use fn_error_context::context;
@@ -22,7 +23,6 @@ use slog::info;
 use std::collections::HashSet;
 use std::io::stdin;
 use std::time::Duration;
-use crate::lib::models::canister_id_store::CanisterIdStore;
 
 #[allow(clippy::too_many_arguments)]
 #[context("Failed to install wasm module to canister '{}'.", canister_info.get_name())]

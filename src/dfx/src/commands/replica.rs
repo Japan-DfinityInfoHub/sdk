@@ -13,12 +13,13 @@ use crate::commands::start::{
     empty_writable_path,
 };
 use crate::lib::network::local_server_descriptor::LocalServerDescriptor;
-use crate::lib::provider::{get_network_descriptor, LocalBindDetermination};
+use crate::lib::provider::{create_network_descriptor, LocalBindDetermination};
 use anyhow::Context;
 use clap::Parser;
 use fn_error_context::context;
 use std::default::Default;
 use std::fs;
+use std::fs::create_dir_all;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -88,9 +89,22 @@ fn get_port(config: &ConfigDefaultsReplica, port: Option<&String>) -> DfxResult<
 pub fn exec(env: &dyn Environment, opts: ReplicaOpts) -> DfxResult {
     let system = actix::System::new();
 
-    let network_descriptor =
-        get_network_descriptor(env.get_config(), None, LocalBindDetermination::AsConfigured)?;
+    let network_descriptor = create_network_descriptor(
+        env.get_config(),
+        env.get_shared_config(),
+        None,
+        true,
+        LocalBindDetermination::AsConfigured,
+    )?;
     let local_server_descriptor = network_descriptor.local_server_descriptor()?;
+
+    let temp_dir = &local_server_descriptor.data_directory;
+    create_dir_all(&temp_dir).with_context(|| {
+        format!(
+            "Failed to create network temp directory {}.",
+            temp_dir.to_string_lossy()
+        )
+    })?;
 
     let btc_adapter_pid_file_path =
         empty_writable_path(local_server_descriptor.btc_adapter_pid_path())?;

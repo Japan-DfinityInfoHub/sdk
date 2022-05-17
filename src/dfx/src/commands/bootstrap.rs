@@ -5,13 +5,14 @@ use crate::lib::environment::Environment;
 use crate::lib::error::DfxResult;
 use crate::lib::network::local_server_descriptor::LocalServerDescriptor;
 use crate::lib::network::network_descriptor::NetworkDescriptor;
-use crate::lib::provider::{get_network_descriptor, LocalBindDetermination};
+use crate::lib::provider::{create_network_descriptor, LocalBindDetermination};
 use crate::util::get_reusable_socket_addr;
 
 use anyhow::{anyhow, Context, Error};
 use clap::Parser;
 use fn_error_context::context;
 use slog::info;
+use std::fs::create_dir_all;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use url::Url;
@@ -47,13 +48,22 @@ pub struct BootstrapOpts {
 
 /// Runs the bootstrap server.
 pub fn exec(env: &dyn Environment, opts: BootstrapOpts) -> DfxResult {
-    let network_descriptor = get_network_descriptor(
+    let network_descriptor = create_network_descriptor(
         env.get_config(),
+        env.get_shared_config(),
         opts.network.clone(),
+        true,
         LocalBindDetermination::AsConfigured,
     )?;
     let local_server_descriptor = network_descriptor.local_server_descriptor()?;
     let config_bootstrap = apply_arguments(&local_server_descriptor.bootstrap, opts)?;
+
+    create_dir_all(&local_server_descriptor.data_directory).with_context(|| {
+        format!(
+            "Failed to create network temp directory {}.",
+            local_server_descriptor.data_directory.to_string_lossy()
+        )
+    })?;
 
     let icx_proxy_pid_file_path = local_server_descriptor.icx_proxy_pid_path();
 

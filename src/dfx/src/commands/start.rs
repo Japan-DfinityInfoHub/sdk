@@ -6,7 +6,7 @@ use crate::actors::{
 use crate::lib::environment::Environment;
 use crate::lib::error::{DfxError, DfxResult};
 use crate::lib::network::local_server_descriptor::LocalServerDescriptor;
-use crate::lib::provider::{get_network_descriptor, LocalBindDetermination};
+use crate::lib::provider::{create_network_descriptor, LocalBindDetermination};
 use crate::lib::replica_config::ReplicaConfig;
 use crate::lib::{bitcoin, canister_http};
 use crate::util::get_reusable_socket_addr;
@@ -19,6 +19,7 @@ use fn_error_context::context;
 use garcon::{Delay, Waiter};
 use ic_agent::Agent;
 use std::fs;
+use std::fs::create_dir_all;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -160,12 +161,30 @@ pub fn exec(
         enable_canister_http,
     }: StartOpts,
 ) -> DfxResult {
-    let _config = env.get_config_or_anyhow()?;
-    let network_descriptor =
-        get_network_descriptor(env.get_config(), None, LocalBindDetermination::AsConfigured)?;
+    let project_config = env.get_config();
+
+    let network_descriptor = create_network_descriptor(
+        project_config,
+        env.get_shared_config(),
+        None,
+        true,
+        LocalBindDetermination::AsConfigured,
+    )?;
     let local_server_descriptor = network_descriptor.local_server_descriptor()?;
 
+    let (frontend_url, address_and_port) =
+        frontend_address(host, local_server_descriptor, background)?;
     let project_temp_dir = env.get_project_temp_dir();
+
+    let network_temp_dir = local_server_descriptor.data_directory.clone();
+    eprintln!("creating {}", network_temp_dir.to_string_lossy());
+    create_dir_all(&network_temp_dir).with_context(|| {
+        format!(
+            "Failed to create network temp directory {}.",
+            network_temp_dir.to_string_lossy()
+        )
+    })?;
+
     let pid_file_path = local_server_descriptor.dfx_pid_path();
     let state_root = local_server_descriptor.state_dir();
 
@@ -206,9 +225,6 @@ pub fn exec(
 
     let replica_port_path = empty_writable_path(local_server_descriptor.replica_port_path())?;
     let emulator_port_path = empty_writable_path(local_server_descriptor.ic_ref_port_path())?;
-
-    let (frontend_url, address_and_port) =
-        frontend_address(host, local_server_descriptor, background)?;
 
     if background {
         send_background()?;

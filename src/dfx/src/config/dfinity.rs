@@ -2,7 +2,9 @@
 use crate::lib::error::{BuildError, DfxError, DfxResult};
 use crate::{error_invalid_argument, error_invalid_config, error_invalid_data};
 
+use crate::lib::config::get_config_dfx_dir_path;
 use anyhow::{anyhow, Context};
+use directories_next::ProjectDirs;
 use fn_error_context::context;
 use ic_types::Principal;
 use serde::{Deserialize, Serialize};
@@ -54,7 +56,7 @@ pub struct ConfigCanistersCanisterRemote {
     pub id: BTreeMap<String, Principal>,
 }
 
-const DEFAULT_LOCAL_BIND: &str = "127.0.0.1:8000";
+pub const DEFAULT_LOCAL_BIND: &str = "127.0.0.1:8000";
 pub const DEFAULT_IC_GATEWAY: &str = "https://ic0.app";
 pub const DEFAULT_IC_GATEWAY_TRAILING_SLASH: &str = "https://ic0.app/";
 
@@ -183,7 +185,7 @@ impl ReplicaSubnetType {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ConfigNetworkProvider {
     pub providers: Vec<String>,
 
@@ -193,6 +195,7 @@ pub struct ConfigNetworkProvider {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ConfigLocalProvider {
+    #[serde(default = "default_local_bind")]
     pub bind: String,
 
     #[serde(default = "NetworkType::ephemeral")]
@@ -204,6 +207,9 @@ pub struct ConfigLocalProvider {
     pub replica: Option<ConfigDefaultsReplica>,
 }
 
+fn default_local_bind() -> String {
+    String::from(DEFAULT_LOCAL_BIND)
+}
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ConfigNetwork {
@@ -238,9 +244,23 @@ pub struct ConfigInterface {
     pub networks: Option<BTreeMap<String, ConfigNetwork>>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SharedConfigDefaults {
+    pub bitcoin: Option<ConfigDefaultsBitcoin>,
+    pub bootstrap: Option<ConfigDefaultsBootstrap>,
+    pub canister_http: Option<ConfigDefaultsCanisterHttp>,
+    pub replica: Option<ConfigDefaultsReplica>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SharedConfigInterface {
+    // pub defaults: Option<SharedConfigDefaults>,
+    pub networks: Option<BTreeMap<String, ConfigNetwork>>,
+}
+
 impl ConfigCanistersCanister {}
 
-#[context("Failed to convert '{}' to a SocketAddress.", s)]
+#[context("Failed to convert '{}' to a socket address.", s)]
 pub fn to_socket_addr(s: &str) -> DfxResult<SocketAddr> {
     match s.to_socket_addrs() {
         Ok(mut a) => match a.next() {
@@ -278,6 +298,14 @@ impl ConfigDefaults {
     }
 }
 
+impl SharedConfigInterface {
+    pub fn get_network(&self, name: &str) -> Option<ConfigNetwork> {
+        self.networks
+            .as_ref()
+            .and_then(|networks| networks.get(name).cloned())
+    }
+}
+
 impl ConfigInterface {
     pub fn get_defaults(&self) -> &ConfigDefaults {
         match &self.defaults {
@@ -287,27 +315,9 @@ impl ConfigInterface {
     }
 
     pub fn get_network(&self, name: &str) -> Option<ConfigNetwork> {
-        let network = self
-            .networks
+        self.networks
             .as_ref()
-            .and_then(|networks| networks.get(name).cloned());
-        match (name, &network) {
-            ("local", None) => Some(ConfigNetwork::ConfigLocalProvider(ConfigLocalProvider {
-                bind: String::from(DEFAULT_LOCAL_BIND),
-                r#type: NetworkType::Ephemeral,
-                bitcoin: None,
-                bootstrap: None,
-                canister_http: None,
-                replica: None,
-            })),
-            ("ic", _) => Some(ConfigNetwork::ConfigNetworkProvider(
-                ConfigNetworkProvider {
-                    providers: vec![DEFAULT_IC_GATEWAY.to_string()],
-                    r#type: NetworkType::Persistent,
-                },
-            )),
-            _ => network,
-        }
+            .and_then(|networks| networks.get(name).cloned())
     }
 
     pub fn get_version(&self) -> u32 {
@@ -555,6 +565,64 @@ impl Config {
             format!("Failed to write config to {}.", self.path.to_string_lossy())
         })?;
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct SharedConfig {
+    path: PathBuf,
+    json: Value,
+    // public interface to the shared config:
+    shared_config: SharedConfigInterface,
+}
+
+impl SharedConfig {
+    pub fn get_path(&self) -> &PathBuf {
+        &self.path
+    }
+    pub fn get_shared_config(&self) -> &SharedConfigInterface {
+        &self.shared_config
+    }
+    #[context("Failed to determine shared network data directory.")]
+    pub fn get_network_data_directory(network: &str) -> DfxResult<PathBuf> {
+        let project_dirs = ProjectDirs::from("org", "dfinity", "dfx").ok_or_else(|| {
+            anyhow!("Unable to retrieve a valid home directory path from the operating system")
+        })?;
+        Ok(project_dirs.data_local_dir().join("network").join(network))
+    }
+
+    #[context("Failed to read shared configuration.")]
+    pub fn from_shared_dir() -> DfxResult<SharedConfig> {
+        let dir = get_config_dfx_dir_path()?;
+
+        let path = dir.join("dfx.json");
+        if path.exists() {
+            SharedConfig::from_file(&path)
+        } else {
+            Ok(SharedConfig {
+                path,
+                json: Default::default(),
+                shared_config: SharedConfigInterface {
+                    // defaults: None,
+                    networks: None,
+                },
+            })
+        }
+    }
+
+    #[context("Failed to read shared configuration from {}.", path.to_string_lossy())]
+    fn from_file(path: &Path) -> DfxResult<SharedConfig> {
+        let content = std::fs::read(&path)
+            .with_context(|| format!("Failed to read {}.", path.to_string_lossy()))?;
+
+        let shared_config = serde_json::from_slice(&content)?;
+        let json = serde_json::from_slice(&content)?;
+        let path = PathBuf::from(path);
+        Ok(SharedConfig {
+            path,
+            json,
+            shared_config,
+        })
     }
 }
 

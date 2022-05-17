@@ -15,14 +15,18 @@ teardown() {
 }
 
 set_default_canister_http_enabled() {
+    echo "E2E_NETWORK_DFX_JSON is $E2E_NETWORK_DFX_JSON"
+    mkdir -p "$(dirname "$E2E_NETWORK_DFX_JSON")"
+    [ ! -f "$E2E_NETWORK_DFX_JSON" ] && echo "{}" >"$E2E_NETWORK_DFX_JSON"
     # shellcheck disable=SC2094
-    cat <<<"$(jq '.defaults.canister_http.enabled=true' dfx.json)" >dfx.json
+    cat <<<"$(jq '.networks.local.canister_http.enabled=true' "$E2E_NETWORK_DFX_JSON")" >"$E2E_NETWORK_DFX_JSON"
+    # cat <<<"$(jq '.networks.local.bind="127.0.0.1:'"$(get_webserver_port)"'"' "$E2E_NETWORK_DFX_JSON")" >"$E2E_NETWORK_DFX_JSON"
+
 }
 
 @test "dfx restarts replica when ic-canister-http-adapter restarts" {
     dfx_new hello
-    set_default_canister_http_enabled
-    dfx_start
+    dfx_start --enable-canister-http
 
     install_asset greet
     assert_command dfx deploy
@@ -60,7 +64,7 @@ set_default_canister_http_enabled() {
     ID=$(dfx canister id hello_assets)
 
     timeout 15s sh -c \
-      "until curl --fail http://localhost:\$(cat .dfx/webserver-port)/sample-asset.txt?canisterId=$ID; do echo waiting for icx-proxy to restart; sleep 1; done" \
+      "until curl --fail http://localhost:\$(cat \"$E2E_NETWORK_DATA_DIRECTORY/webserver-port\")/sample-asset.txt?canisterId=$ID; do echo waiting for icx-proxy to restart; sleep 1; done" \
       || (echo "icx-proxy did not restart" && ps aux && exit 1)
 
     assert_command curl --fail http://localhost:"$(get_webserver_port)"/sample-asset.txt?canisterId="$ID"
@@ -68,8 +72,7 @@ set_default_canister_http_enabled() {
 
 @test "dfx restarts replica when ic-canister-http-adapter restarts - replica and bootstrap" {
     dfx_new hello
-    set_default_canister_http_enabled
-    dfx_start_replica_and_bootstrap
+    dfx_start_replica_and_bootstrap --enable-canister-http
 
     install_asset greet
     assert_command dfx deploy
@@ -88,7 +91,7 @@ set_default_canister_http_enabled() {
     assert_process_exits "$REPLICA_PID" 15s
 
     timeout 15s sh -x -c \
-      "until curl --fail --verbose -o /dev/null http://localhost:\$(cat .dfx/replica-configuration/replica-1.port)/api/v2/status; do echo \"waiting for replica to restart on port \$(cat .dfx/replica-configuration/replica-1.port)\"; sleep 1; done" \
+      "until curl --fail --verbose -o /dev/null http://localhost:\$(cat '$E2E_NETWORK_DATA_DIRECTORY/replica-configuration/replica-1.port')/api/v2/status; do echo \"waiting for replica to restart on port \$(cat '$E2E_NETWORK_DATA_DIRECTORY/replica-configuration/replica-1.port')\"; sleep 1; done" \
       || (echo "replica did not restart" && echo "last replica port was $(get_replica_port)" && ps aux && exit 1)
 
     # this isn't right but bootstrap doesn't restart by itself, so it forwards to the old replica.
@@ -117,7 +120,7 @@ set_default_canister_http_enabled() {
 
     dfx_start --enable-canister-http
 
-    assert_file_not_empty .dfx/ic-canister-http-adapter-pid
+    assert_file_not_empty "$E2E_NETWORK_DATA_DIRECTORY/ic-canister-http-adapter-pid"
 }
 
 @test "dfx replica --enable-canister-http with no other configuration succeeds" {
@@ -125,23 +128,25 @@ set_default_canister_http_enabled() {
 
     dfx_start_replica_and_bootstrap --enable-canister-http
 
-    assert_file_not_empty .dfx/ic-canister-http-adapter-pid
+    assert_file_not_empty "$E2E_NETWORK_DATA_DIRECTORY/ic-canister-http-adapter-pid"
 }
 
-@test "can enable http through default configuration (dfx start)" {
+@test "can enable http through default configuration - dfx start" {
     dfx_new hello
+    determine_network_directory
     set_default_canister_http_enabled
 
     dfx_start
 
-    assert_file_not_empty .dfx/ic-canister-http-adapter-pid
+    assert_file_not_empty "$E2E_NETWORK_DATA_DIRECTORY/ic-canister-http-adapter-pid"
 }
 
-@test "can enable http through default configuration (dfx replica)" {
+@test "can enable http through default configuration - dfx replica" {
     dfx_new hello
+    determine_network_directory
     set_default_canister_http_enabled
 
     dfx_start_replica_and_bootstrap
 
-    assert_file_not_empty .dfx/ic-canister-http-adapter-pid
+    assert_file_not_empty "$E2E_NETWORK_DATA_DIRECTORY/ic-canister-http-adapter-pid"
 }

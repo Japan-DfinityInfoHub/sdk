@@ -57,7 +57,7 @@ teardown() {
     address="127.0.0.1:$port"
 
     # fool dfx start into thinking dfx isn't running
-    mv .dfx/pid .dfx/hidden_pid
+    mv "$E2E_NETWORK_DATA_DIRECTORY/pid" "$E2E_NETWORK_DATA_DIRECTORY/hidden_pid"
 
     assert_command_fail dfx start  --host "$address"
 
@@ -71,7 +71,7 @@ teardown() {
     assert_match "Address already in use"
 
     # Allow dfx stop to stop dfx in teardown.  Otherwise, bats will never exit
-    mv .dfx/hidden_pid .dfx/pid
+    mv "$E2E_NETWORK_DATA_DIRECTORY/hidden_pid" "$E2E_NETWORK_DATA_DIRECTORY/pid"
 }
 
 @test "corrupt dfx.json" {

@@ -1,7 +1,9 @@
 {
-    "defaults": {
-        "replica": {
-            "subnet_type": "system"
+    "networks": {
+        "local": {
+            "replica": {
+                "subnet_type": "system"
+            }
         }
     }
 }

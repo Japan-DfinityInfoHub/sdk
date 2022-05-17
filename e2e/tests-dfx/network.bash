@@ -8,6 +8,7 @@ setup() {
     dfx identity new --disable-encryption test_id
     dfx identity use test_id
     dfx_new
+    cat dfx.json
 }
 
 teardown() {
@@ -34,7 +35,7 @@ teardown() {
 
     setup_actuallylocal_network
     # shellcheck disable=SC2094
-    cat <<<"$(jq .networks.actuallylocal.type=\"ephemeral\" dfx.json)" >dfx.json
+    cat <<<"$(jq .networks.actuallylocal.type=\"ephemeral\" "$E2E_NETWORK_DFX_JSON")" >"$E2E_NETWORK_DFX_JSON"
     assert_command dfx_set_wallet
 
     assert_command dfx canister --network actuallylocal create --all
@@ -58,13 +59,24 @@ teardown() {
 @test "create stores canister ids for configured-persistent local networks in canister_ids.json" {
     dfx_start
 
+    webserver_port=$(get_webserver_port)
+
+    mkdir -p "$(dirname "$E2E_NETWORK_DFX_JSON")"
+    echo "{}" >"$E2E_NETWORK_DFX_JSON"
     # shellcheck disable=SC2094
-    cat <<<"$(jq .networks.local.type=\"persistent\" dfx.json)" >dfx.json
+    cat <<<"$(jq '.networks.local.bind="127.0.0.1:'"$webserver_port"'"' "$E2E_NETWORK_DFX_JSON")" >"$E2E_NETWORK_DFX_JSON"
+    # shellcheck disable=SC2094
+    cat <<<"$(jq .networks.local.type=\"persistent\" "$E2E_NETWORK_DFX_JSON")" >"$E2E_NETWORK_DFX_JSON"
+
+    echo "*** project dfx.json"
+    jq . dfx.json
+    echo "*** shared dfx.json ($E2E_NETWORK_DFX_JSON)"
+    jq . "$E2E_NETWORK_DFX_JSON"
 
     assert_command dfx canister --network local create --all
 
     # canister creates writes to a spinner (stderr), not stdout
-    assert_command dfx canister --network local id e2e_project
+    dfx canister --network local id e2e_project
     assert_match "$(jq -r .e2e_project.local <canister_ids.json)"
 }
 

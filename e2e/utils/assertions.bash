@@ -108,7 +108,7 @@ assert_eq() {
     fi
 
     [[ "$actual" == "$expected" ]] || \
-        (batslib_print_kv_single_or_multi 10 "expected" "$expected" "actual" "$actual" \
+        (batslib_print_kv_single_or_multi 10 "expected" "$expected" "$(echo "$expected" | hexdump -C)" "actual" "$actual" "$(echo "$actual" | hexdump -C)" \
          | batslib_decorate "output does not match" \
          | fail)
 }
