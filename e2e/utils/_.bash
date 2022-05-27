@@ -183,8 +183,6 @@ dfx_start_replica_and_bootstrap() {
         local replica_port=$(cat ${dfx_config_root}/replica-1.port)
 
     fi
-    # Overwrite the default networks.local.bind 127.0.0.1:8000 with allocated port
-    cat <<<$(jq .networks.local.bind=\"127.0.0.1:${replica_port}\" dfx.json) >dfx.json
 
     printf "Replica Configured Port: %s\n" "${replica_port}"
 
@@ -192,7 +190,9 @@ dfx_start_replica_and_bootstrap() {
         "until nc -z localhost ${replica_port}; do echo waiting for replica; sleep 1; done" \
         || (echo "could not connect to replica on port ${replica_port}" && exit 1)
 
-    wait_until_replica_healthy
+    # ping the replica directly, because the bootstrap (that launches icx-proxy, which dfx ping usually connects to)
+    # is not running yet
+    dfx ping "http://127.0.0.1:${replica_port}"
 
     # This only works because we use the network by name
     #    (implicitly: --network local)
@@ -202,8 +202,12 @@ dfx_start_replica_and_bootstrap() {
     dfx bootstrap --port 0 3>&- &
     export DFX_BOOTSTRAP_PID=$!
 
+
     timeout 5 sh -c \
-        'until nc -z localhost $(cat .dfx/proxy-port); do echo waiting for bootstrap; sleep 1; done' \
+        'until nc -z localhost $(cat .dfx/proxy-port); do echo waiting for icx-proxy; sleep 1; done' \
+        || (echo "could not connect to icx-proxy on port $(cat .dfx/proxy-port)" && exit 1)
+    timeout 5 sh -c \
+        'until nc -z localhost $(cat .dfx/webserver-port); do echo waiting for bootstrap; sleep 1; done' \
         || (echo "could not connect to bootstrap on port $(cat .dfx/proxy-port)" && exit 1)
     timeout 5 sh -c \
         'until nc -z localhost $(cat .dfx/webserver-port); do echo waiting for webserver; sleep 1; done' \
@@ -213,6 +217,11 @@ dfx_start_replica_and_bootstrap() {
 #    # the bootstrap server is listening
 #    local webserver_port=$(cat .dfx/webserver-port)
 #    # cat <<<"$(jq .networks.local.bind=\"127.0.0.1:${webserver_port}\" dfx.json)" >dfx.json
+
+    # We have to overwrite the webserver port in the network bind so that dfx knows where
+    # the bootstrap server is listening
+    local webserver_port=$(cat .dfx/webserver-port)
+    cat <<<"$(jq .networks.local.bind=\"127.0.0.1:${webserver_port}\" dfx.json)" >dfx.json
 
     local proxy_port=$(cat .dfx/proxy-port)
     printf "Proxy Configured Port: %s\n", "${proxy_port}"

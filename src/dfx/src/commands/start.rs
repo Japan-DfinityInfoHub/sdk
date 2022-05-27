@@ -192,6 +192,22 @@ pub fn exec(
     let icx_proxy_pid_file_path = empty_writable_path(temp_dir.join("icx-proxy-pid"))?;
     let webserver_port_path = empty_writable_path(temp_dir.join("webserver-port"))?;
 
+    // dfx bootstrap will read these port files to find out which port to use,
+    // so we need to make sure only one has a valid port in it.
+    fs::create_dir_all(&temp_dir.join("replica-configuration")).with_context(|| {
+        format!(
+            "Failed to create replica config directory {}.",
+            temp_dir.to_string_lossy()
+        )
+    })?;
+
+    let replica_port_path = empty_writable_path(
+        temp_dir
+            .join("replica-configuration")
+            .join("replica-1.port"),
+    )?;
+    let emulator_port_path = empty_writable_path(temp_dir.join("ic-ref.port"))?;
+
     let (frontend_url, address_and_port) =
         frontend_address(host, local_server_descriptor, background)?;
 
@@ -236,7 +252,8 @@ pub fn exec(
         let shutdown_controller = start_shutdown_controller(env)?;
 
         let port_ready_subscribe: Recipient<PortReadySubscribe> = if emulator {
-            let emulator = start_emulator_actor(env, shutdown_controller.clone())?;
+            let emulator =
+                start_emulator_actor(env, shutdown_controller.clone(), emulator_port_path)?;
             emulator.recipient()
         } else {
             let (btc_adapter_ready_subscribe, btc_adapter_socket_path) =
@@ -269,11 +286,6 @@ pub fn exec(
                 } else {
                     (None, None)
                 };
-
-            let replica_port_path = env
-                .get_temp_dir()
-                .join("replica-configuration")
-                .join("replica-1.port");
 
             let subnet_type = config
                 .get_config()
@@ -310,7 +322,7 @@ pub fn exec(
         let icx_proxy_config = IcxProxyConfig {
             bind: address_and_port,
             proxy_port: webserver_bind.port(),
-            providers: vec![],
+            replica_urls: vec![], // will be determined after replica starts
             fetch_root_key: !network_descriptor.is_ic,
         };
 

@@ -84,7 +84,7 @@ pub fn run_webserver(
     bind: SocketAddr,
 ) -> DfxResult {
     const SHUTDOWN_WAIT_TIME: u64 = 60;
-    info!(logger, "binding to: {:?}", bind);
+    info!(logger, "Candid webserver listening on: {:?}", bind);
     let candid_data = web::Data::new(CandidData {
         build_output_root,
         network_descriptor,
