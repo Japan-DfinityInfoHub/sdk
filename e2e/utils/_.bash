@@ -114,7 +114,7 @@ dfx_start() {
 
         # Overwrite the default networks.local.bind 127.0.0.1:8000 with allocated port
         local webserver_port=$(cat .dfx/webserver-port)
-        cat <<<$(jq .networks.local.bind=\"127.0.0.1:${webserver_port}\" dfx.json) >dfx.json
+        # cat <<<$(jq .networks.local.bind=\"127.0.0.1:${webserver_port}\" dfx.json) >dfx.json
     else
         # Bats creates a FD 3 for test output, but child processes inherit it and Bats will
         # wait for it to close. Because `dfx start` leaves child processes running, we need
@@ -132,7 +132,7 @@ dfx_start() {
 
         # Overwrite the default networks.local.bind 127.0.0.1:8000 with allocated port
         local webserver_port=$(cat .dfx/webserver-port)
-        cat <<<$(jq .networks.local.bind=\"127.0.0.1:${webserver_port}\" dfx.json) >dfx.json
+        # cat <<<$(jq .networks.local.bind=\"127.0.0.1:${webserver_port}\" dfx.json) >dfx.json
     fi
 
     printf "Replica Configured Port: %s\n" "${port}"
@@ -209,6 +209,11 @@ dfx_start_replica_and_bootstrap() {
         'until nc -z localhost $(cat .dfx/webserver-port); do echo waiting for webserver; sleep 1; done' \
         || (echo "could not connect to webserver on port $(cat .dfx/webserver-port)" && exit 1)
 
+#    # We have to overwrite the webserver port in the network bind so that dfx knows where
+#    # the bootstrap server is listening
+#    local webserver_port=$(cat .dfx/webserver-port)
+#    # cat <<<"$(jq .networks.local.bind=\"127.0.0.1:${webserver_port}\" dfx.json)" >dfx.json
+
     local proxy_port=$(cat .dfx/proxy-port)
     printf "Proxy Configured Port: %s\n", "${proxy_port}"
 
@@ -270,6 +275,9 @@ use_wallet_wasm() {
 
 get_webserver_port() {
   cat ".dfx/webserver-port"
+}
+overwrite_webserver_port() {
+  echo "$1" >".dfx/webserver-port"
 }
 
 get_replica_pid() {
