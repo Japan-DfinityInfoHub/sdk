@@ -15,6 +15,13 @@ pub struct NetworkDescriptor {
 }
 
 impl NetworkDescriptor {
+    // pub fn new(name: String, providers: Vec<String>, r#type: NetworkType, is_ic: bool,
+    // local_server_descriptor: Option<LocalServerDescriptor>) -> Self {
+    //     NetworkDescriptor {
+    //         name, providers, r#type, is_ic, local_server_descriptor
+    //     }
+    // }
+
     /// Determines whether the provided connection is the official IC or not.
     #[allow(clippy::ptr_arg)]
     pub fn is_ic(network_name: &str, providers: &Vec<String>) -> bool {

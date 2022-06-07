@@ -1,4 +1,8 @@
-use crate::config::dfinity::{Config, ConfigLocalProvider, ConfigNetwork, NetworkType};
+use crate::config::dfinity::{
+    Config, ConfigLocalProvider, ConfigNetwork, NetworkType, EMPTY_CONFIG_DEFAULTS_BITCOIN,
+    EMPTY_CONFIG_DEFAULTS_BOOTSTRAP, EMPTY_CONFIG_DEFAULTS_CANISTER_HTTP,
+    EMPTY_CONFIG_DEFAULTS_REPLICA,
+};
 use crate::lib::environment::{AgentEnvironment, Environment};
 use crate::lib::error::DfxResult;
 use crate::lib::network::local_server_descriptor::LocalServerDescriptor;
@@ -61,6 +65,7 @@ pub fn get_network_descriptor(
     let data_directory = config.get_temp_path();
     let config = config.as_ref().get_config();
     let network_name = get_network_context()?;
+    let project_defaults = config.get_defaults();
     match config.get_network(&network_name) {
         Some(ConfigNetwork::ConfigNetworkProvider(network_provider)) => {
             let providers = if !network_provider.providers.is_empty() {
@@ -85,12 +90,39 @@ pub fn get_network_descriptor(
             })
         }
         Some(ConfigNetwork::ConfigLocalProvider(local_provider)) => {
+            let bitcoin = local_provider
+                .bitcoin
+                .clone()
+                .or_else(|| project_defaults.bitcoin.clone())
+                .unwrap_or(EMPTY_CONFIG_DEFAULTS_BITCOIN);
+            let bootstrap = local_provider
+                .bootstrap
+                .clone()
+                .or_else(|| project_defaults.bootstrap.clone())
+                .unwrap_or(EMPTY_CONFIG_DEFAULTS_BOOTSTRAP);
+            let canister_http = local_provider
+                .canister_http
+                .clone()
+                .or_else(|| project_defaults.canister_http.clone())
+                .unwrap_or(EMPTY_CONFIG_DEFAULTS_CANISTER_HTTP);
+            let replica = local_provider
+                .replica
+                .clone()
+                .or_else(|| project_defaults.replica.clone())
+                .unwrap_or(EMPTY_CONFIG_DEFAULTS_REPLICA);
+
             let network_type = local_provider.r#type;
             let bind_address =
                 get_local_bind_address(local_provider, local_bind_determination, &data_directory)?;
             let provider_url = format!("http://{}", bind_address);
             let providers = vec![parse_provider_url(&provider_url)?];
-            let local_server_descriptor = LocalServerDescriptor::new(bind_address)?;
+            let local_server_descriptor = LocalServerDescriptor::new(
+                bind_address,
+                bitcoin,
+                bootstrap,
+                canister_http,
+                replica,
+            )?;
             Ok(NetworkDescriptor {
                 name: network_name.to_string(),
                 providers,
@@ -341,8 +373,11 @@ mod tests {
         )
         .unwrap();
 
-        let result = get_network_descriptor(Some(Arc::new(config)), None,
-                                            LocalBindDetermination::AsConfigured);
+        let result = get_network_descriptor(
+            Some(Arc::new(config)),
+            None,
+            LocalBindDetermination::AsConfigured,
+        );
         assert!(result.is_err());
     }
 
