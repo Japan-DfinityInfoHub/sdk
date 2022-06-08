@@ -291,7 +291,7 @@ impl Identity {
                     .join(WALLET_CONFIG_FILENAME)
             }
             NetworkType::Ephemeral => env
-                .get_temp_dir()
+                .get_project_temp_dir()
                 .join("local")
                 .join(WALLET_CONFIG_FILENAME),
         })
@@ -471,7 +471,7 @@ impl Identity {
             )?;
         }
         let local_wallet_path = env
-            .get_temp_dir()
+            .get_project_temp_dir()
             .join("local")
             .join(WALLET_CONFIG_FILENAME);
         if local_wallet_path.exists() {

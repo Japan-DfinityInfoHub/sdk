@@ -29,9 +29,7 @@ pub trait Environment {
     /// for the current project or if not in a project. Following
     /// invocations by other processes in the same project should
     /// return the same configuration directory.
-    fn get_temp_dir(&self) -> &Path;
-    /// Return the directory where state for replica(s) is kept.
-    fn get_state_dir(&self) -> PathBuf;
+    fn get_project_temp_dir(&self) -> &Path;
     fn get_version(&self) -> &Version;
 
     /// This is value of the name passed to dfx `--identity <name>`
@@ -62,7 +60,7 @@ pub trait Environment {
 
 pub struct EnvironmentImpl {
     config: Option<Arc<Config>>,
-    temp_dir: PathBuf,
+    project_temp_dir: PathBuf,
 
     cache: Arc<dyn Cache>,
 
@@ -77,16 +75,16 @@ pub struct EnvironmentImpl {
 impl EnvironmentImpl {
     pub fn new() -> DfxResult<Self> {
         let config = Config::from_current_dir()?;
-        let temp_dir = match &config {
+        let project_temp_dir = match &config {
             None => tempfile::tempdir()
                 .expect("Could not create a temporary directory.")
                 .into_path(),
             Some(c) => c.get_path().parent().unwrap().join(".dfx"),
         };
-        create_dir_all(&temp_dir).with_context(|| {
+        create_dir_all(&project_temp_dir).with_context(|| {
             format!(
                 "Failed to create temp directory {}.",
-                temp_dir.to_string_lossy()
+                project_temp_dir.to_string_lossy()
             )
         })?;
 
@@ -120,7 +118,7 @@ impl EnvironmentImpl {
         Ok(EnvironmentImpl {
             cache: Arc::new(DiskBasedCache::with_version(&version)),
             config: config.map(Arc::new),
-            temp_dir,
+            project_temp_dir,
             version: version.clone(),
             logger: None,
             progress: true,
@@ -163,12 +161,8 @@ impl Environment for EnvironmentImpl {
         self.config.is_some()
     }
 
-    fn get_temp_dir(&self) -> &Path {
-        &self.temp_dir
-    }
-
-    fn get_state_dir(&self) -> PathBuf {
-        self.get_temp_dir().join("state")
+    fn get_project_temp_dir(&self) -> &Path {
+        &self.project_temp_dir
     }
 
     fn get_version(&self) -> &Version {
@@ -265,12 +259,8 @@ impl<'a> Environment for AgentEnvironment<'a> {
         self.backend.is_in_project()
     }
 
-    fn get_temp_dir(&self) -> &Path {
-        self.backend.get_temp_dir()
-    }
-
-    fn get_state_dir(&self) -> PathBuf {
-        self.backend.get_state_dir()
+    fn get_project_temp_dir(&self) -> &Path {
+        self.backend.get_project_temp_dir()
     }
 
     fn get_version(&self) -> &Version {

@@ -11,6 +11,7 @@ pub struct NetworkDescriptor {
     pub providers: Vec<String>,
     pub r#type: NetworkType,
     pub is_ic: bool,
+
     pub local_server_descriptor: Option<LocalServerDescriptor>,
 }
 

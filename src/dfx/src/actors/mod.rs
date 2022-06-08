@@ -12,6 +12,7 @@ use crate::actors::canister_http_adapter::signals::CanisterHttpAdapterReadySubsc
 use crate::actors::canister_http_adapter::CanisterHttpAdapter;
 use crate::actors::icx_proxy::signals::PortReadySubscribe;
 use crate::actors::icx_proxy::{IcxProxy, IcxProxyConfig};
+use crate::lib::network::network_descriptor::NetworkDescriptor;
 use actix::{Actor, Addr, Recipient};
 use anyhow::Context;
 use fn_error_context::context;
@@ -111,9 +112,14 @@ pub fn start_emulator_actor(
 }
 
 #[context("Failed to setup replica environment.")]
-fn setup_replica_env(env: &dyn Environment, replica_config: &ReplicaConfig) -> DfxResult<PathBuf> {
+fn setup_replica_env(
+    network_descriptor: &NetworkDescriptor,
+    replica_config: &ReplicaConfig,
+) -> DfxResult<PathBuf> {
     // create replica config dir
-    let replica_configuration_dir = env.get_temp_dir().join("replica-configuration");
+    let replica_configuration_dir = network_descriptor
+        .local_server_descriptor()?
+        .replica_configuration_dir();
     fs::create_dir_all(&replica_configuration_dir).with_context(|| {
         format!(
             "Failed to create replica config direcory {}.",
@@ -135,7 +141,10 @@ fn setup_replica_env(env: &dyn Environment, replica_config: &ReplicaConfig) -> D
     }
 
     // create replica state dir
-    let state_dir = env.get_state_dir().join("replicated_state");
+    let state_dir = replica_config
+        .state_manager
+        .state_root
+        .join("replicated_state");
     fs::create_dir_all(&state_dir).with_context(|| {
         format!(
             "Failed to create replica state directory {}.",
@@ -150,6 +159,7 @@ fn setup_replica_env(env: &dyn Environment, replica_config: &ReplicaConfig) -> D
 pub fn start_replica_actor(
     env: &dyn Environment,
     replica_config: ReplicaConfig,
+    network_descriptor: &NetworkDescriptor,
     shutdown_controller: Addr<ShutdownController>,
     btc_adapter_ready_subscribe: Option<Recipient<BtcAdapterReadySubscribe>>,
     canister_http_adapter_ready_subscribe: Option<Recipient<CanisterHttpAdapterReadySubscribe>>,
@@ -158,7 +168,7 @@ pub fn start_replica_actor(
     let replica_path = env.get_cache().get_binary_command_path("replica")?;
     let ic_starter_path = env.get_cache().get_binary_command_path("ic-starter")?;
 
-    let replica_configuration_dir = setup_replica_env(env, &replica_config)?;
+    let replica_configuration_dir = setup_replica_env(network_descriptor, &replica_config)?;
 
     let actor_config = replica::Config {
         ic_starter_path,
