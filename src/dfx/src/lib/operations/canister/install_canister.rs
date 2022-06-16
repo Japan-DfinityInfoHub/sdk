@@ -22,12 +22,14 @@ use slog::info;
 use std::collections::HashSet;
 use std::io::stdin;
 use std::time::Duration;
+use crate::lib::models::canister_id_store::CanisterIdStore;
 
 #[allow(clippy::too_many_arguments)]
 #[context("Failed to install wasm module to canister '{}'.", canister_info.get_name())]
 pub async fn install_canister(
     env: &dyn Environment,
     agent: &Agent,
+    canister_id_store: &mut CanisterIdStore,
     canister_info: &CanisterInfo,
     args: &[u8],
     mode: InstallMode,
@@ -38,8 +40,8 @@ pub async fn install_canister(
 ) -> DfxResult {
     let log = env.get_logger();
     let network = env.get_network_descriptor();
-    if !network.is_ic && named_canister::get_ui_canister_id(network).is_none() {
-        named_canister::install_ui_canister(env, network, None).await?;
+    if !network.is_ic && named_canister::get_ui_canister_id(canister_id_store).is_none() {
+        named_canister::install_ui_canister(env, canister_id_store, None).await?;
     }
 
     let canister_id = canister_info.get_canister_id()?;
