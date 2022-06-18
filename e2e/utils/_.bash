@@ -202,13 +202,6 @@ dfx_start_replica_and_bootstrap() {
     dfx bootstrap --port 0 3>&- &
     export DFX_BOOTSTRAP_PID=$!
 
-
-    timeout 5 sh -c \
-        'until nc -z localhost $(cat .dfx/proxy-port); do echo waiting for icx-proxy; sleep 1; done' \
-        || (echo "could not connect to icx-proxy on port $(cat .dfx/proxy-port)" && exit 1)
-    timeout 5 sh -c \
-        'until nc -z localhost $(cat .dfx/webserver-port); do echo waiting for bootstrap; sleep 1; done' \
-        || (echo "could not connect to bootstrap on port $(cat .dfx/proxy-port)" && exit 1)
     timeout 5 sh -c \
         'until nc -z localhost $(cat .dfx/webserver-port); do echo waiting for webserver; sleep 1; done' \
         || (echo "could not connect to webserver on port $(cat .dfx/webserver-port)" && exit 1)
@@ -222,9 +215,6 @@ dfx_start_replica_and_bootstrap() {
     # the bootstrap server is listening
     local webserver_port=$(cat .dfx/webserver-port)
     cat <<<"$(jq .networks.local.bind=\"127.0.0.1:${webserver_port}\" dfx.json)" >dfx.json
-
-    local proxy_port=$(cat .dfx/proxy-port)
-    printf "Proxy Configured Port: %s\n", "${proxy_port}"
 
     local webserver_port=$(cat .dfx/webserver-port)
     printf "Webserver Configured Port: %s\n", "${webserver_port}"

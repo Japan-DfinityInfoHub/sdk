@@ -52,10 +52,6 @@ impl LocalServerDescriptor {
         self.data_directory.join("icx-proxy-pid")
     }
 
-    pub fn proxy_port_path(&self) -> PathBuf {
-        self.data_directory.join("proxy-port")
-    }
-
     pub fn ic_ref_port_path(&self) -> PathBuf {
         self.data_directory.join("ic-ref.port")
     }

@@ -15,6 +15,7 @@ teardown() {
 }
 
 @test "build without cargo-audit installed cannot check for vulnerabilities" {
+  skip
   assert_command rustup default stable
   assert_command rustup target add wasm32-unknown-unknown
   install_asset vulnerable_rust_deps
