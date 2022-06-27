@@ -1,3 +1,46 @@
+# 環境変数
+
+環境変数を使って SDK の実行環境の特定のプロパティを設定することができます。
+
+このセクションでは現在サポートされている環境変数とその使い方の例を挙げています。 ほとんどの場合、ターミナルでコマンドを実行するか、`.profile` ファイルに以下のような行を追加することで、セッションの環境変数を設定することができます：
+
+    export DFX_NETWORK=ic
+
+## CANISTER\_CANDID\_PATH\_{canister.name}
+
+`CANISTER_CANDID_PATH` というプレフィックスの環境変数を使って、プロジェクトの `dfx.json` ファイルで依存関係にある Canister の Candid 記述ファイルへのパスを参照することができます。
+
+例えば、 `whoami_assets` Canister があり、 `dependencies` キーに `whoami` がリストされている場合、 `CANISTER_CANDID_PATH_whoami_assets` という 環境変数を使って、ローカル開発で `whoami.did` と記載されるファイルの場所を参照することができます：
+
+    $PROJECT_ROOT/.dfx/local/canisters/whoami/whoami.did
+
+## CANISTER\_ID\_{canister.name}
+
+`CANISTER_ID` というプレフィックスの環境変数を使って、プロジェクトの `dfx.json` ファイルにある各 Canister の識別子を参照することができます。
+
+例えば、`linkedup` と `connectd` Canister からなる `linkedup` プロジェクトがある場合、 `CANISTER_ID_linkedup` と `CANISTER_ID_connectd` 環境変数を使って、プロジェクトで作成した `ryjl3-tyaaaa-aaaaaaa-cai` と `rrkah-fqaaa-aaaaq-cai` など、Canister の識別子を指定することが可能です。
+
+## DFX\_CONFIG\_ROOT
+
+環境変数 `DFX_CONFIG_ROOT` を使用して、`dfx` の `.cache` と `.config` サブディレクトリを格納する場所を指定します。
+
+デフォルトでは、`.cache` と `.config` ディレクトリは開発環境のホームディレクトリに配置されます。 例えば、macOS の場合、デフォルトの場所は `/Users/<YOUR-USER-NAME>` ディレクトリです。 環境変数 `DFX_CONFIG_ROOT` を使用して、これらのディレクトリを別の場所に指定します。
+
+    DFX_CONFIG_ROOT=~/ic-root
+
+## DFX\_INSTALLATION\_ROOT
+
+お使いのオペレーティングシステムのデフォルトの場所を使用しない場合、環境変数 `DFX_INSTALLATION_ROOT` を使用して、`dfx` バイナリを別の場所に指定します。
+
+`.cache/dfinity/uninstall.sh` スクリプトはこの環境変数を使用して SDK インストールのルートディレクトリを特定します。
+
+## DFX\_VERSION
+
+インストールしたい SDK の特定バージョンを指定するには、`DFX_VERSION` 環境変数を使用します。
+
+    DFX_VERSION=0.10.0 sh -ci "$(curl -fsSL https://smartcontracts.org/install.sh)"
+
+<!--
 # Environment variables
 
 You can configure certain properties for your SDK execution environment using environment variables.
@@ -39,3 +82,5 @@ The `.cache/dfinity/uninstall.sh` script uses this environment variable to ident
 Use the `DFX_VERSION` environment variable to identify a specific version of the SDK that you want to install.
 
     DFX_VERSION=0.10.0 sh -ci "$(curl -fsSL https://smartcontracts.org/install.sh)"
+
+-->
