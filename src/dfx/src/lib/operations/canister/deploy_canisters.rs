@@ -10,10 +10,8 @@ use crate::lib::models::canister_id_store::CanisterIdStore;
 use crate::lib::operations::canister::{create_canister, install_canister};
 use crate::util::{blob_from_arguments, get_candid_init_type};
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use fn_error_context::context;
-use humanize_rs::bytes::Bytes;
-use ic_agent::AgentError;
 use ic_utils::interfaces::management_canister::attributes::{
     ComputeAllocation, FreezingThreshold, MemoryAllocation,
 };
@@ -22,7 +20,6 @@ use slog::info;
 use std::convert::TryFrom;
 use std::time::Duration;
 
-#[allow(clippy::too_many_arguments)]
 #[context("Failed while trying to deploy canisters.")]
 pub async fn deploy_canisters(
     env: &dyn Environment,
@@ -91,7 +88,7 @@ pub async fn deploy_canisters(
     )
     .await?;
 
-    build_canisters(env, &canisters_to_build, &config)?;
+    let pool = build_canisters(env, &canisters_to_build, &config).await?;
 
     install_canisters(
         env,
@@ -104,6 +101,7 @@ pub async fn deploy_canisters(
         upgrade_unchanged,
         timeout,
         call_sender,
+        pool,
     )
     .await?;
 
@@ -145,32 +143,30 @@ async fn register_canisters(
         info!(env.get_logger(), "Creating canisters...");
         for canister_name in &canisters_to_create {
             let config_interface = config.get_config();
-            let compute_allocation =
-                config_interface
-                    .get_compute_allocation(canister_name)?
-                    .map(|arg| {
-                        ComputeAllocation::try_from(arg.parse::<u64>().unwrap())
-                            .expect("Compute Allocation must be a percentage.")
-                    });
-            let memory_allocation =
-                config_interface
-                    .get_memory_allocation(canister_name)?
-                    .map(|arg| {
-                        MemoryAllocation::try_from(
-                        u64::try_from(arg.parse::<Bytes>().unwrap().size()).unwrap(),
-                    )
-                    .expect(
-                        "Memory allocation must be between 0 and 2^48 (i.e 256TB), inclusively.",
-                    )
-                    });
+            let compute_allocation = config_interface
+                .get_compute_allocation(canister_name)?
+                .map(|arg| {
+                    ComputeAllocation::try_from(arg)
+                        .context("Compute Allocation must be a percentage.")
+                })
+                .transpose()?;
+            let memory_allocation = config_interface
+                .get_memory_allocation(canister_name)?
+                .map(|arg| {
+                    u64::try_from(arg.get_bytes())
+                        .map_err(|e| anyhow!(e))
+                        .and_then(|n| Ok(MemoryAllocation::try_from(n)?))
+                        .context(
+                            "Memory allocation must be between 0 and 2^48 (i.e 256TB), inclusively.",
+                        )
+                })
+                .transpose()?;
             let freezing_threshold =
                 config_interface
                     .get_freezing_threshold(canister_name)?
                     .map(|arg| {
-                        FreezingThreshold::try_from(
-                            u128::try_from(arg.parse::<Bytes>().unwrap().size()).unwrap(),
-                        )
-                        .expect("Freezing threshold must be between 0 and 2^64-1, inclusively.")
+                        FreezingThreshold::try_from(arg.as_secs())
+                            .expect("Freezing threshold must be between 0 and 2^64-1, inclusively.")
                     });
             let controllers = None;
             create_canister(
@@ -193,15 +189,21 @@ async fn register_canisters(
 }
 
 #[context("Failed to build call canisters.")]
-fn build_canisters(env: &dyn Environment, canister_names: &[String], config: &Config) -> DfxResult {
+async fn build_canisters(
+    env: &dyn Environment,
+    canister_names: &[String],
+    config: &Config,
+) -> DfxResult<CanisterPool> {
     info!(env.get_logger(), "Building canisters...");
     let build_mode_check = false;
     let canister_pool = CanisterPool::load(env, build_mode_check, canister_names)?;
 
-    canister_pool.build_or_fail(&BuildConfig::from_config(config)?)
+    canister_pool
+        .build_or_fail(&BuildConfig::from_config(config)?)
+        .await?;
+    Ok(canister_pool)
 }
 
-#[allow(clippy::too_many_arguments)]
 #[context("Failed while trying to install all canisters.")]
 async fn install_canisters(
     env: &dyn Environment,
@@ -214,6 +216,7 @@ async fn install_canisters(
     upgrade_unchanged: bool,
     timeout: Duration,
     call_sender: &CallSender,
+    pool: CanisterPool,
 ) -> DfxResult {
     info!(env.get_logger(), "Installing canisters...");
 
@@ -221,50 +224,36 @@ async fn install_canisters(
         .get_agent()
         .ok_or_else(|| anyhow!("Cannot find dfx configuration file in the current working directory. Did you forget to create one?"))?;
 
-    let canister_id_store = CanisterIdStore::for_env(env)?;
+    let mut canister_id_store = CanisterIdStore::for_env(env)?;
 
     for canister_name in canister_names {
-        let (install_mode, installed_module_hash) = if force_reinstall {
-            (InstallMode::Reinstall, None)
+        let install_mode = if force_reinstall {
+            Some(InstallMode::Reinstall)
         } else {
             match initial_canister_id_store.find(canister_name) {
-                Some(canister_id) => {
-                    match agent
-                        .read_state_canister_info(canister_id, "module_hash", false)
-                        .await
-                    {
-                        Ok(installed_module_hash) => {
-                            (InstallMode::Upgrade, Some(installed_module_hash))
-                        }
-                        // If the canister is empty, this path does not exist.
-                        // The replica doesn't support negative lookups, therefore if the canister
-                        // is empty, the replica will return lookup_path([], Pruned _) = Unknown
-                        Err(AgentError::LookupPathUnknown(_))
-                        | Err(AgentError::LookupPathAbsent(_)) => (InstallMode::Install, None),
-                        Err(x) => bail!(x),
-                    }
-                }
-                None => (InstallMode::Install, None),
+                Some(_) => None,
+                None => Some(InstallMode::Install),
             }
         };
 
         let canister_id = canister_id_store.get(canister_name)?;
         let canister_info = CanisterInfo::load(config, canister_name, Some(canister_id))?;
 
-        let maybe_path = canister_info.get_output_idl_path();
-        let init_type = maybe_path.and_then(|path| get_candid_init_type(&path));
-        let install_args = blob_from_arguments(argument, None, argument_type, &init_type)?;
+        let idl_path = canister_info.get_build_idl_path();
+        let init_type = get_candid_init_type(&idl_path);
+        let install_args = || blob_from_arguments(argument, None, argument_type, &init_type);
 
         install_canister(
             env,
             agent,
+            &mut canister_id_store,
             &canister_info,
             &install_args,
             install_mode,
             timeout,
             call_sender,
-            installed_module_hash,
             upgrade_unchanged,
+            Some(&pool),
         )
         .await?;
     }

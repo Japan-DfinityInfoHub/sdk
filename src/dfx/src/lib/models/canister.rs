@@ -1,6 +1,7 @@
 use crate::config::dfinity::Config;
 use crate::lib::builders::{
-    BuildConfig, BuildOutput, BuilderPool, CanisterBuilder, IdlBuildOutput, WasmBuildOutput,
+    custom_download, BuildConfig, BuildOutput, BuilderPool, CanisterBuilder, IdlBuildOutput,
+    WasmBuildOutput,
 };
 use crate::lib::canister_info::CanisterInfo;
 use crate::lib::environment::Environment;
@@ -8,9 +9,10 @@ use crate::lib::error::{BuildError, DfxError, DfxResult};
 use crate::lib::models::canister_id_store::CanisterIdStore;
 use crate::util::{assets, check_candid_file};
 
-use anyhow::{anyhow, Context};
+use crate::lib::wasm::metadata::add_candid_service_metadata;
+use anyhow::{anyhow, bail, Context};
+use candid::Principal as CanisterId;
 use fn_error_context::context;
-use ic_types::principal::Principal as CanisterId;
 use petgraph::graph::{DiGraph, NodeIndex};
 use rand::{thread_rng, RngCore};
 use slog::{error, info, trace, warn, Logger};
@@ -120,18 +122,11 @@ impl CanisterPool {
             _ => None,
         };
         let info = CanisterInfo::load(pool_helper.config, canister_name, canister_id)?;
-
-        if let Some(builder) = pool_helper.builder_pool.get(&info) {
-            pool_helper
-                .canisters_map
-                .insert(0, Arc::new(Canister::new(info, builder)));
-            Ok(())
-        } else {
-            Err(anyhow!(
-                "Cannot find builder for canister '{}'.",
-                info.get_name().to_string()
-            ))
-        }
+        let builder = pool_helper.builder_pool.get(&info);
+        pool_helper
+            .canisters_map
+            .insert(0, Arc::new(Canister::new(info, builder)));
+        Ok(())
     }
 
     #[context(
@@ -244,7 +239,7 @@ impl CanisterPool {
 
     #[context("Failed step_prebuild_all.")]
     fn step_prebuild_all(&self, _build_config: &BuildConfig) -> DfxResult<()> {
-        if self.contains_canister_of_type("rust") {
+        if self.canisters.iter().any(|can| can.info.is_rust()) {
             self.run_cargo_audit()?;
         } else {
             trace!(
@@ -285,7 +280,14 @@ impl CanisterPool {
             })?;
             std::fs::copy(&build_idl_path, &idl_file_path)
                 .map(|_| {})
-                .map_err(DfxError::from)?;
+                .map_err(DfxError::from)
+                .with_context(|| {
+                    format!(
+                        "Failed to copy {} to {}",
+                        build_idl_path.display(),
+                        idl_file_path.display()
+                    )
+                })?;
 
             let mut perms = std::fs::metadata(&idl_file_path)
                 .with_context(|| {
@@ -333,21 +335,26 @@ impl CanisterPool {
                 )
             })?;
         }
+        if build_output.add_candid_service_metadata {
+            add_candid_service_metadata(&wasm_file_path, &idl_file_path)?;
+        }
 
-        // And then create an canisters/IDL folder with canister DID files per canister ID.
-        let idl_root = &build_config.idl_root;
         let canister_id = canister.canister_id();
-        let idl_file_path = idl_root.join(canister_id.to_text()).with_extension("did");
 
-        std::fs::create_dir_all(idl_file_path.parent().unwrap()).with_context(|| {
-            format!(
-                "Failed to create {}.",
-                idl_file_path.parent().unwrap().to_string_lossy()
-            )
-        })?;
-        std::fs::copy(&build_idl_path, &idl_file_path)
-            .map(|_| {})
-            .map_err(DfxError::from)?;
+        // Copy DID files to IDL and LSP directories
+        for root in [&build_config.idl_root, &build_config.lsp_root] {
+            let idl_file_path = root.join(canister_id.to_text()).with_extension("did");
+
+            std::fs::create_dir_all(idl_file_path.parent().unwrap()).with_context(|| {
+                format!(
+                    "Failed to create {}.",
+                    idl_file_path.parent().unwrap().to_string_lossy()
+                )
+            })?;
+            std::fs::copy(&build_idl_path, &idl_file_path)
+                .map(|_| {})
+                .map_err(DfxError::from)?;
+        }
 
         build_canister_js(&canister.canister_id(), &canister.info)?;
 
@@ -444,7 +451,8 @@ impl CanisterPool {
     /// Build all canisters, failing with the first that failed the build. Will return
     /// nothing if all succeeded.
     #[context("Failed while trying to build all canisters.")]
-    pub fn build_or_fail(&self, build_config: &BuildConfig) -> DfxResult<()> {
+    pub async fn build_or_fail(&self, build_config: &BuildConfig) -> DfxResult<()> {
+        self.download(build_config).await?;
         let outputs = self.build(build_config)?;
 
         for output in outputs {
@@ -454,14 +462,42 @@ impl CanisterPool {
         Ok(())
     }
 
-    fn contains_canister_of_type(&self, of_type: &str) -> bool {
-        self.canisters
-            .iter()
-            .any(|c| c.get_info().get_type() == of_type)
+    async fn download(&self, _build_config: &BuildConfig) -> DfxResult {
+        for canister in &self.canisters {
+            let info = canister.get_info();
+
+            if info.is_custom() {
+                custom_download(info, self).await?;
+            }
+        }
+        Ok(())
     }
 
     /// If `cargo-audit` is installed this runs `cargo audit` and displays any vulnerable dependencies.
     fn run_cargo_audit(&self) -> DfxResult {
+        let location = Command::new("cargo")
+            .args(["locate-project", "--message-format=plain", "--workspace"])
+            .output()
+            .context("Failed to run 'cargo locate-project'.")?;
+        if !location.status.success() {
+            bail!(
+                "'cargo locate-project' failed: {}",
+                String::from_utf8_lossy(&location.stderr)
+            );
+        }
+        let location = Path::new(std::str::from_utf8(&location.stdout)?);
+        if !location
+            .parent()
+            .expect("Cargo.toml with no parent")
+            .join("Cargo.lock")
+            .exists()
+        {
+            warn!(
+                self.logger,
+                "Skipped audit step as there is no Cargo.lock file."
+            );
+            return Ok(());
+        }
         if Command::new("cargo")
             .arg("audit")
             .arg("--version")
@@ -558,6 +594,9 @@ fn build_canister_js(canister_id: &CanisterId, canister_info: &CanisterInfo) -> 
                         format!("Failed to write to {}.", index_js_path.to_string_lossy())
                     })?;
             }
+            // skip
+            "index.js.hbs" => {}
+            "index.d.ts.hbs" => {}
             _ => unreachable!(),
         }
     }

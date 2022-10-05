@@ -7,12 +7,12 @@ use ic_agent::agent::ReplicaV2Transport;
 use ic_agent::{agent::http_transport::ReqwestHttpReplicaV2Transport, RequestId};
 
 use anyhow::{anyhow, bail, Context};
+use candid::Principal;
 use clap::Parser;
-use ic_types::Principal;
 use std::{fs::File, path::Path};
 use std::{io::Read, str::FromStr};
 
-/// Send a signed message
+/// Send a previously-signed message.
 #[derive(Parser)]
 pub struct CanisterSendOpts {
     /// Specifies the file name of the message
@@ -29,7 +29,7 @@ pub async fn exec(
     call_sender: &CallSender,
 ) -> DfxResult {
     if *call_sender != CallSender::SelectedId {
-        bail!("`sign` currently doesn't support proxy through wallet canister, please use `dfx canister --no-wallet send ...`.");
+        bail!("`send` currently doesn't support proxying through the wallet canister, please use `dfx canister send --no-wallet ...`.");
     }
     let file_name = opts.file_name;
     let path = Path::new(&file_name);
@@ -46,7 +46,7 @@ pub async fn exec(
         .context("Failed to create transport object.")?;
     let content = hex::decode(&message.content).context("Failed to decode message content.")?;
     let canister_id = Principal::from_text(message.canister_id.clone())
-        .with_context(|| format!("Failed to parse canister id {}.", message.canister_id))?;
+        .with_context(|| format!("Failed to parse canister id {:?}.", message.canister_id))?;
 
     if opts.status {
         if message.call_type.clone().as_str() != "update" {

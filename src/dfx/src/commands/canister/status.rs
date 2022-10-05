@@ -6,13 +6,13 @@ use crate::lib::operations::canister;
 use crate::lib::root_key::fetch_root_key_if_needed;
 use crate::util::expiry_duration;
 
+use candid::Principal;
 use clap::Parser;
 use fn_error_context::context;
-use ic_types::Principal;
 use slog::info;
 use std::time::Duration;
 
-/// Returns the current status of the canister on the Internet Computer network: Running, Stopping, or Stopped.
+/// Returns the current status of a canister: Running, Stopping, or Stopped. Also carries information like balance, current settings, memory used and everything returned by 'info'.
 #[derive(Parser)]
 pub struct CanisterStatusOpts {
     /// Specifies the name of the canister to return information for.

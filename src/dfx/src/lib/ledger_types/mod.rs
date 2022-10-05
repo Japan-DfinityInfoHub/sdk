@@ -6,14 +6,16 @@
 use crate::lib::nns_types::account_identifier::Subaccount;
 use crate::lib::nns_types::icpts::ICPTs;
 use candid::CandidType;
-use ic_types::principal::Principal;
+use candid::Principal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Id of the ledger canister on the IC.
+#[allow(deprecated)]
 pub const MAINNET_LEDGER_CANISTER_ID: Principal =
     Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x01, 0x01]);
 
+#[allow(deprecated)]
 pub const MAINNET_CYCLE_MINTER_CANISTER_ID: Principal =
     Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x01, 0x01]);
 
@@ -73,6 +75,26 @@ impl fmt::Display for TransferError {
     }
 }
 
+#[derive(CandidType, Deserialize)]
+pub enum CyclesResponse {
+    CanisterCreated(Principal),
+    ToppedUp(()),
+    Refunded(String, Option<BlockHeight>),
+}
+
+#[derive(CandidType, Deserialize)]
+pub struct IcpXdrConversionRate {
+    pub timestamp_seconds: u64,
+    pub xdr_permyriad_per_icp: u64,
+}
+
+#[derive(CandidType, Deserialize)]
+pub struct IcpXdrConversionRateCertifiedResponse {
+    pub data: IcpXdrConversionRate,
+    pub hash_tree: Vec<u8>,
+    pub certificate: Vec<u8>,
+}
+
 /// Position of a block in the chain. The first block has position 0.
 pub type BlockHeight = u64;
 
@@ -108,6 +130,7 @@ pub struct TimeStamp {
 pub struct NotifyCreateCanisterArg {
     pub block_index: BlockIndex,
     pub controller: Principal,
+    pub subnet_type: Option<String>,
 }
 
 #[derive(CandidType)]
@@ -134,6 +157,11 @@ pub enum NotifyError {
 pub type NotifyCreateCanisterResult = Result<Principal, NotifyError>;
 
 pub type NotifyTopUpResult = Result<u128, NotifyError>;
+
+#[derive(CandidType, Deserialize, Debug)]
+pub struct GetSubnetTypesToSubnetsResult {
+    pub data: Vec<(String, Vec<Principal>)>,
+}
 
 #[cfg(test)]
 mod tests {

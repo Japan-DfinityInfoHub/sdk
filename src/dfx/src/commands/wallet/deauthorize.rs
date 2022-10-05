@@ -3,8 +3,8 @@ use crate::lib::environment::Environment;
 use crate::lib::error::DfxResult;
 
 use anyhow::Context;
+use candid::Principal;
 use clap::Parser;
-use ic_types::Principal;
 
 /// Deauthorize a wallet custodian.
 #[derive(Parser)]
@@ -14,8 +14,12 @@ pub struct DeauthorizeOpts {
 }
 
 pub async fn exec(env: &dyn Environment, opts: DeauthorizeOpts) -> DfxResult {
-    let custodian =
-        Principal::from_text(&opts.custodian).context("Failed to parse custodian principal.")?;
+    let custodian = Principal::from_text(&opts.custodian).with_context(|| {
+        format!(
+            "Failed to parse {:?} as custodian principal.",
+            opts.custodian
+        )
+    })?;
     wallet_update(env, "deauthorize", custodian).await?;
     println!("Deauthorized {} as a custodian.", opts.custodian);
     Ok(())

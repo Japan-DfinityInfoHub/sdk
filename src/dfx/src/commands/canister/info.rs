@@ -4,16 +4,16 @@ use crate::lib::models::canister_id_store::CanisterIdStore;
 use crate::lib::root_key::fetch_root_key_if_needed;
 
 use anyhow::{anyhow, bail, Context};
+use candid::Principal;
 use clap::Parser;
 use ic_agent::AgentError;
-use ic_types::Principal;
 use serde_cbor::Value;
 use std::convert::TryFrom;
 
-/// Get the hash of a canister’s WASM module and its current controller in a certified way.
+/// Get the hash of a canister’s WASM module and its current controller.
 #[derive(Parser)]
 pub struct InfoOpts {
-    /// Specifies the name or id of the canister to get its certified canister information.
+    /// Specifies the name or id of the canister to get its canister information.
     canister: String,
 }
 
@@ -29,10 +29,15 @@ pub async fn exec(env: &dyn Environment, opts: InfoOpts) -> DfxResult {
         .or_else(|_| canister_id_store.get(callee_canister))?;
 
     fetch_root_key_if_needed(env).await?;
-    let controller_blob = agent
+    let controller_blob = match agent
         .read_state_canister_info(canister_id, "controllers", false)
         .await
-        .with_context(|| format!("Failed to read controllers of canister {}.", canister_id))?;
+    {
+        Err(AgentError::LookupPathUnknown(_) | AgentError::LookupPathAbsent(_)) => {
+            bail!("Canister {canister_id} does not exist.")
+        }
+        r => r.with_context(|| format!("Failed to read controllers of canister {canister_id}."))?,
+    };
     let cbor: Value = serde_cbor::from_slice(&controller_blob)
         .map_err(|_| anyhow!("Invalid cbor data in controllers canister info."))?;
     let controllers = if let Value::Array(vec) = cbor {

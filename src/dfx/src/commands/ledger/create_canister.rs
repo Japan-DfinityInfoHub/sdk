@@ -9,11 +9,11 @@ use crate::lib::root_key::fetch_root_key_if_needed;
 use crate::util::clap::validators::{e8s_validator, icpts_amount_validator};
 
 use anyhow::{anyhow, bail, Context};
+use candid::Principal;
 use clap::Parser;
-use ic_types::principal::Principal;
 use std::str::FromStr;
 
-const MEMO_CREATE_CANISTER: u64 = 1095062083_u64;
+pub const MEMO_CREATE_CANISTER: u64 = 1095062083_u64;
 
 /// Create a canister from ICP
 #[derive(Parser)]
@@ -46,6 +46,12 @@ pub struct CreateCanisterOpts {
     /// Max fee, default is 10000 e8s.
     #[clap(long, validator(icpts_amount_validator))]
     max_fee: Option<String>,
+
+    /// Specify the optional subnet type to create the canister on. If no
+    /// subnet type is provided, the canister will be created on a random
+    /// default application subnet.
+    #[clap(long)]
+    subnet_type: Option<String>,
 }
 
 pub async fn exec(env: &dyn Environment, opts: CreateCanisterOpts) -> DfxResult {
@@ -53,24 +59,30 @@ pub async fn exec(env: &dyn Environment, opts: CreateCanisterOpts) -> DfxResult 
 
     let fee = opts
         .fee
+        .as_ref()
         .map_or(Ok(TRANSACTION_FEE), |v| {
-            ICPTs::from_str(&v).map_err(|err| anyhow!(err))
+            ICPTs::from_str(v).map_err(|err| anyhow!(err))
         })
         .context("Failed to determine fee.")?;
 
     let memo = Memo(MEMO_CREATE_CANISTER);
 
-    let controller =
-        Principal::from_text(opts.controller).context("Failed to parse controller principal.")?;
+    let controller = Principal::from_text(&opts.controller).with_context(|| {
+        format!(
+            "Failed to parse {:?} as controller principal.",
+            &opts.controller
+        )
+    })?;
 
     let agent = env
         .get_agent()
         .ok_or_else(|| anyhow!("Cannot get HTTP client from environment."))?;
 
     fetch_root_key_if_needed(env).await?;
+
     let height = transfer_cmc(agent, memo, amount, fee, opts.from_subaccount, controller).await?;
     println!("Transfer sent at block height {height}");
-    let result = notify_create(agent, controller, height).await?;
+    let result = notify_create(agent, controller, height, opts.subnet_type).await?;
 
     match result {
         Ok(principal) => {

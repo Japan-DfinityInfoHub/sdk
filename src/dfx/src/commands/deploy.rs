@@ -6,16 +6,17 @@ use crate::lib::root_key::fetch_root_key_if_needed;
 use crate::lib::{environment::Environment, identity::Identity, named_canister};
 use crate::util::clap::validators::cycle_amount_validator;
 use crate::util::expiry_duration;
+use crate::NetworkOpt;
 use std::collections::BTreeMap;
 
 use crate::lib::canister_info::CanisterInfo;
 use crate::lib::models::canister_id_store::CanisterIdStore;
 use crate::lib::network::network_descriptor::NetworkDescriptor;
 use anyhow::{anyhow, bail, Context};
+use candid::Principal;
 use clap::Parser;
 use console::Style;
 use fn_error_context::context;
-use ic_types::Principal;
 use ic_utils::interfaces::management_canister::builders::InstallMode;
 use slog::info;
 use std::str::FromStr;
@@ -52,12 +53,8 @@ pub struct DeployOpts {
     #[clap(long)]
     upgrade_unchanged: bool,
 
-    /// Override the compute network to connect to. By default, the local network is used.
-    /// A valid URL (starting with `http:` or `https:`) can be used here, and a special
-    /// ephemeral network will be created specifically for this request. E.g.
-    /// "http://localhost:12345/" is a valid network name.
-    #[clap(long)]
-    network: Option<String>,
+    #[clap(flatten)]
+    network: NetworkOpt,
 
     /// Specifies the initial cycle balance to deposit into the newly created canister.
     /// The specified amount needs to take the canister create fee into account.
@@ -77,7 +74,7 @@ pub struct DeployOpts {
 }
 
 pub fn exec(env: &dyn Environment, opts: DeployOpts) -> DfxResult {
-    let env = create_agent_environment(env, opts.network)?;
+    let env = create_agent_environment(env, opts.network.network)?;
 
     let timeout = expiry_duration();
     let canister_name = opts.canister_name.as_deref();
@@ -113,7 +110,6 @@ pub fn exec(env: &dyn Environment, opts: DeployOpts) -> DfxResult {
             &env,
             env.get_network_descriptor(),
             env.get_selected_identity().expect("No selected identity"),
-            false,
         ))?;
         proxy_sender = CallSender::Wallet(*wallet.canister_id_());
         &proxy_sender
@@ -147,7 +143,7 @@ fn display_urls(env: &dyn Environment) -> DfxResult {
     let mut frontend_urls = BTreeMap::new();
     let mut candid_urls: BTreeMap<&String, Url> = BTreeMap::new();
 
-    let ui_canister_id = named_canister::get_ui_canister_id(network);
+    let ui_canister_id = named_canister::get_ui_canister_id(&canister_id_store);
 
     if let Some(canisters) = &config.get_config().canisters {
         for (canister_name, canister_config) in canisters {
@@ -163,14 +159,13 @@ fn display_urls(env: &dyn Environment) -> DfxResult {
             };
             if let Some(canister_id) = canister_id {
                 let canister_info = CanisterInfo::load(&config, canister_name, Some(canister_id))?;
-                let is_frontend = canister_config.extras.get("frontend").is_some();
 
-                if is_frontend {
+                if canister_config.frontend.is_some() {
                     let url = construct_frontend_url(network, &canister_id)?;
                     frontend_urls.insert(canister_name, url);
                 }
 
-                if canister_info.get_type() != "assets" {
+                if !canister_info.is_assets() {
                     let url = construct_ui_canister_url(network, &canister_id, ui_canister_id)?;
                     if let Some(ui_canister_url) = url {
                         candid_urls.insert(canister_name, ui_canister_url);
@@ -184,13 +179,13 @@ fn display_urls(env: &dyn Environment) -> DfxResult {
         info!(log, "URLs:");
         let green = Style::new().green();
         if !frontend_urls.is_empty() {
-            info!(log, "  Frontend:");
+            info!(log, "  Frontend canister via browser");
             for (name, url) in frontend_urls {
                 info!(log, "    {}: {}", name, green.apply_to(url));
             }
         }
         if !candid_urls.is_empty() {
-            info!(log, "  Candid:");
+            info!(log, "  Backend canister via Candid interface:");
             for (name, url) in candid_urls {
                 info!(log, "    {}: {}", name, green.apply_to(url));
             }

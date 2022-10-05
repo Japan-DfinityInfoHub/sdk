@@ -1,7 +1,7 @@
-use crate::lib::environment::Environment;
 use crate::lib::error::DfxResult;
 use crate::lib::identity::identity_utils::call_sender;
 use crate::lib::provider::create_agent_environment;
+use crate::{lib::environment::Environment, NetworkOpt};
 
 use clap::{Parser, Subcommand};
 use tokio::runtime::Runtime;
@@ -13,6 +13,7 @@ mod deposit_cycles;
 mod id;
 mod info;
 mod install;
+mod metadata;
 mod request_status;
 mod send;
 mod sign;
@@ -26,16 +27,12 @@ mod update_settings;
 #[derive(Parser)]
 #[clap(name("canister"))]
 pub struct CanisterOpts {
-    /// Override the compute network to connect to. By default, the local network is used.
-    /// A valid URL (starting with `http:` or `https:`) can be used here, and a special
-    /// ephemeral network will be created specifically for this request. E.g.
-    /// "http://localhost:12345/" is a valid network name.
-    #[clap(long)]
-    network: Option<String>,
+    #[clap(flatten)]
+    network: NetworkOpt,
 
     /// Specify a wallet canister id to perform the call.
     /// If none specified, defaults to use the selected Identity's wallet canister.
-    #[clap(long)]
+    #[clap(long, global(true))]
     wallet: Option<String>,
 
     #[clap(subcommand)]
@@ -43,7 +40,7 @@ pub struct CanisterOpts {
 }
 
 #[derive(Subcommand)]
-enum SubCommand {
+pub enum SubCommand {
     Call(call::CanisterCallOpts),
     Create(create::CanisterCreateOpts),
     Delete(delete::CanisterDeleteOpts),
@@ -51,6 +48,7 @@ enum SubCommand {
     Id(id::CanisterIdOpts),
     Info(info::InfoOpts),
     Install(install::CanisterInstallOpts),
+    Metadata(metadata::CanisterMetadataOpts),
     RequestStatus(request_status::RequestStatusOpts),
     Send(send::CanisterSendOpts),
     Sign(sign::CanisterSignOpts),
@@ -62,7 +60,7 @@ enum SubCommand {
 }
 
 pub fn exec(env: &dyn Environment, opts: CanisterOpts) -> DfxResult {
-    let agent_env = create_agent_environment(env, opts.network.clone())?;
+    let agent_env = create_agent_environment(env, opts.network.network)?;
     let runtime = Runtime::new().expect("Unable to create a runtime");
 
     runtime.block_on(async {
@@ -75,6 +73,7 @@ pub fn exec(env: &dyn Environment, opts: CanisterOpts) -> DfxResult {
             SubCommand::Id(v) => id::exec(&agent_env, v).await,
             SubCommand::Install(v) => install::exec(&agent_env, v, &call_sender).await,
             SubCommand::Info(v) => info::exec(&agent_env, v).await,
+            SubCommand::Metadata(v) => metadata::exec(&agent_env, v).await,
             SubCommand::RequestStatus(v) => request_status::exec(&agent_env, v).await,
             SubCommand::Send(v) => send::exec(&agent_env, v, &call_sender).await,
             SubCommand::Sign(v) => sign::exec(&agent_env, v, &call_sender).await,

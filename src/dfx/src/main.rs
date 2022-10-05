@@ -3,7 +3,7 @@ use crate::lib::environment::{Environment, EnvironmentImpl};
 use crate::lib::logger::{create_root_logger, LoggingMode};
 
 use anyhow::Error;
-use clap::Parser;
+use clap::{Args, Parser};
 use lib::diagnosis::{diagnose, Diagnosis, NULL_DIAGNOSIS};
 use semver::Version;
 use std::path::PathBuf;
@@ -18,23 +18,38 @@ mod util;
 #[derive(Parser)]
 #[clap(name("dfx"), version = dfx_version_str())]
 pub struct CliOpts {
-    #[clap(long, short('v'), parse(from_occurrences))]
+    /// Displays detailed information about operations. -vv will generate a very large number of messages and can affect performance.
+    #[clap(long, short('v'), parse(from_occurrences), global(true))]
     verbose: u64,
 
-    #[clap(long, short('q'), parse(from_occurrences))]
+    /// Suppresses informational messages. -qq limits to errors only; -qqqq disables them all.
+    #[clap(long, short('q'), parse(from_occurrences), global(true))]
     quiet: u64,
 
-    #[clap(long("log"), default_value("stderr"), possible_values(&["stderr", "tee", "file"]))]
+    /// The logging mode to use. You can log to stderr, a file, or both.
+    #[clap(long("log"), default_value("stderr"), possible_values(&["stderr", "tee", "file"]), global(true))]
     logmode: String,
 
-    #[clap(long)]
+    /// The file to log to, if logging to a file (see --logmode).
+    #[clap(long, global(true))]
     logfile: Option<String>,
 
-    #[clap(long)]
+    /// The user identity to run this command as. It contains your principal as well as some things DFX associates with it like the wallet.
+    #[clap(long, global(true))]
     identity: Option<String>,
 
     #[clap(subcommand)]
     command: commands::Command,
+}
+
+#[derive(Args, Clone, Debug)]
+struct NetworkOpt {
+    /// Override the compute network to connect to. By default, the local network is used.
+    /// A valid URL (starting with `http:` or `https:`) can be used here, and a special
+    /// ephemeral network will be created specifically for this request. E.g.
+    /// "http://localhost:12345/" is a valid network name.
+    #[clap(long, global(true))]
+    network: Option<String>,
 }
 
 fn is_warning_disabled(warning: &str) -> bool {
@@ -87,9 +102,9 @@ fn maybe_redirect_dfx(version: &Version) -> Option<()> {
 
 /// Setup a logger with the proper configuration, based on arguments.
 /// Returns a topple of whether or not to have a progress bar, and a logger.
-fn setup_logging(opts: &CliOpts) -> (bool, slog::Logger) {
+fn setup_logging(opts: &CliOpts) -> (i64, slog::Logger) {
     // Create a logger with our argument matches.
-    let level = opts.verbose as i64 - opts.quiet as i64;
+    let verbose_level = opts.verbose as i64 - opts.quiet as i64;
 
     let mode = match opts.logmode.as_str() {
         "tee" => LoggingMode::Tee(PathBuf::from(opts.logfile.as_deref().unwrap_or("log.txt"))),
@@ -97,8 +112,7 @@ fn setup_logging(opts: &CliOpts) -> (bool, slog::Logger) {
         _ => LoggingMode::Stderr,
     };
 
-    // Only show the progress bar if the level is INFO or more.
-    (level >= 0, create_root_logger(level, mode))
+    (verbose_level, create_root_logger(verbose_level, mode))
 }
 
 fn print_error_and_diagnosis(err: Error, error_diagnosis: Diagnosis) {
@@ -159,7 +173,7 @@ fn print_error_and_diagnosis(err: Error, error_diagnosis: Diagnosis) {
 
 fn main() {
     let cli_opts = CliOpts::parse();
-    let (progress_bar, log) = setup_logging(&cli_opts);
+    let (verbose_level, log) = setup_logging(&cli_opts);
     let identity = cli_opts.identity;
     let command = cli_opts.command;
     let mut error_diagnosis: Diagnosis = NULL_DIAGNOSIS;
@@ -168,8 +182,8 @@ fn main() {
             maybe_redirect_dfx(env.get_version()).map_or((), |_| unreachable!());
             match EnvironmentImpl::new().map(|env| {
                 env.with_logger(log)
-                    .with_progress_bar(progress_bar)
                     .with_identity_override(identity)
+                    .with_verbose_level(verbose_level)
             }) {
                 Ok(env) => {
                     slog::trace!(

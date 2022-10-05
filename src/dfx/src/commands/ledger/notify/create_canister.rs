@@ -16,13 +16,23 @@ pub struct NotifyCreateOpts {
 
     /// The controller of the created canister.
     controller: String,
+
+    /// Specify the optional subnet type to create the canister on. If no
+    /// subnet type is provided, the canister will be created on a random
+    /// default application subnet.
+    #[clap(long)]
+    subnet_type: Option<String>,
 }
 
 pub async fn exec(env: &dyn Environment, opts: NotifyCreateOpts) -> DfxResult {
     // validated by e8s_validator
     let block_height = opts.block_height.parse::<u64>().unwrap();
-    let controller =
-        Principal::from_text(opts.controller).context("Failed to parse destination principal.")?;
+    let controller = Principal::from_text(&opts.controller).with_context(|| {
+        format!(
+            "Failed to parse {:?} as destination principal.",
+            opts.controller
+        )
+    })?;
 
     let agent = env
         .get_agent()
@@ -30,7 +40,7 @@ pub async fn exec(env: &dyn Environment, opts: NotifyCreateOpts) -> DfxResult {
 
     fetch_root_key_if_needed(env).await?;
 
-    let result = notify_create(agent, controller, block_height).await?;
+    let result = notify_create(agent, controller, block_height, opts.subnet_type).await?;
 
     match result {
         Ok(principal) => {

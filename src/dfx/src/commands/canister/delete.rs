@@ -22,8 +22,8 @@ use ic_utils::interfaces::management_canister::CanisterStatus;
 use ic_utils::Argument;
 
 use anyhow::{anyhow, Context};
+use candid::Principal;
 use clap::Parser;
-use ic_types::Principal;
 use ic_utils::interfaces::management_canister::builders::InstallMode;
 use ic_utils::interfaces::ManagementCanister;
 use num_traits::cast::ToPrimitive;
@@ -31,12 +31,13 @@ use slog::info;
 use std::convert::TryFrom;
 use std::time::Duration;
 
+#[allow(deprecated)]
 const DANK_PRINCIPAL: Principal =
     Principal::from_slice(&[0, 0, 0, 0, 0, 0xe0, 1, 0x11, 0x01, 0x01]); // Principal: aanaa-xaaaa-aaaah-aaeiq-cai
 const WITHDRAWAL_COST: u128 = 10_000_000_000; // Emperically estimated.
 const MAX_MEMORY_ALLOCATION: u64 = 8589934592;
 
-/// Deletes a canister on the Internet Computer network.
+/// Deletes a currently stopped canister.
 #[derive(Parser)]
 pub struct CanisterDeleteOpts {
     /// Specifies the name of the canister to delete.
@@ -51,7 +52,7 @@ pub struct CanisterDeleteOpts {
     #[clap(long)]
     no_withdrawal: bool,
 
-    /// Withdraw cycles from canister(s) to canister/wallet before deleting.
+    /// Withdraw cycles from canister(s) to the specified canister/wallet before deleting.
     #[clap(long, conflicts_with("no-withdrawal"))]
     withdraw_cycles_to_canister: Option<String>,
 
@@ -72,7 +73,6 @@ pub struct CanisterDeleteOpts {
     withdraw_cycles_to_dank_principal: Option<String>,
 }
 
-#[allow(clippy::too_many_arguments)]
 #[context("Failed to delete canister '{}'.", canister)]
 async fn delete_canister(
     env: &dyn Environment,
@@ -100,7 +100,7 @@ async fn delete_canister(
         match withdraw_cycles_to_canister {
             Some(ref target_canister_id) => {
                 Some(Principal::from_text(target_canister_id).with_context(|| {
-                    format!("Failed to read canister id {}.", target_canister_id)
+                    format!("Failed to read canister id {:?}.", target_canister_id)
                 })?)
             }
             None => match call_sender {
@@ -113,10 +113,7 @@ async fn delete_canister(
                         .expect("No selected identity.")
                         .to_string();
                     // If there is no wallet, then do not attempt to withdraw the cycles.
-                    match Identity::wallet_canister_id(env, network, &identity_name) {
-                        Ok(canister_id) => Some(canister_id),
-                        Err(_) => None,
-                    }
+                    Identity::wallet_canister_id(network, &identity_name)?
                 }
             },
         }
@@ -127,7 +124,7 @@ async fn delete_canister(
     let dank_target_principal = match withdraw_cycles_to_dank_principal {
         None => principal,
         Some(principal) => Principal::from_text(&principal)
-            .with_context(|| format!("Failed to read principal {}.", &principal))?,
+            .with_context(|| format!("Failed to read principal {:?}.", &principal))?,
     };
     fetch_root_key_if_needed(env).await?;
 

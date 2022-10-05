@@ -8,17 +8,15 @@ use crate::lib::root_key::fetch_root_key_if_needed;
 use crate::util::{blob_from_arguments, expiry_duration, get_candid_init_type};
 
 use anyhow::{anyhow, bail, Context};
+use candid::Principal;
 use clap::Parser;
-use fn_error_context::context;
-use ic_agent::{Agent, AgentError};
-use ic_types::Principal;
 use ic_utils::interfaces::management_canister::builders::InstallMode;
 use slog::info;
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-/// Deploys compiled code as a canister on the Internet Computer.
+/// Installs compiled code in a canister.
 #[derive(Parser, Clone)]
 pub struct CanisterInstallOpts {
     /// Specifies the canister to deploy. You must specify either canister name/id or the --all option.
@@ -33,8 +31,9 @@ pub struct CanisterInstallOpts {
     async_call: bool,
 
     /// Specifies the type of deployment. You can set the canister deployment modes to install, reinstall, or upgrade.
+    /// If auto is selected, either install or upgrade will be used depending on if the canister has already been installed.
     #[clap(long, short('m'), default_value("install"),
-        possible_values(&["install", "reinstall", "upgrade"]))]
+        possible_values(&["install", "reinstall", "upgrade", "auto"]))]
     mode: String,
 
     /// Upgrade the canister even if the .wasm did not change.
@@ -49,7 +48,7 @@ pub struct CanisterInstallOpts {
     #[clap(long, requires("argument"), possible_values(&["idl", "raw"]))]
     argument_type: Option<String>,
 
-    /// Specifies a particular WASM file to install, bypassing the dfx.json project system.
+    /// Specifies a particular WASM file to install, bypassing the dfx.json project settings.
     #[clap(long, conflicts_with("all"))]
     wasm: Option<PathBuf>,
 }
@@ -66,21 +65,28 @@ pub async fn exec(
 
     fetch_root_key_if_needed(env).await?;
 
-    let mode = InstallMode::from_str(opts.mode.as_str()).map_err(|err| anyhow!(err))?;
-    let canister_id_store = CanisterIdStore::for_env(env)?;
+    let mode = if opts.mode == "auto" {
+        None
+    } else {
+        Some(InstallMode::from_str(&opts.mode).map_err(|err| anyhow!(err))?)
+    };
+    let mut canister_id_store = CanisterIdStore::for_env(env)?;
     let network = env.get_network_descriptor();
 
-    if mode == InstallMode::Reinstall && (opts.canister.is_none() || opts.all) {
+    if mode == Some(InstallMode::Reinstall) && (opts.canister.is_none() || opts.all) {
         bail!("The --mode=reinstall is only valid when specifying a single canister, because reinstallation destroys all data in the canister.");
     }
 
     if let Some(canister) = opts.canister.as_deref() {
         let config = env.get_config();
-        let is_remote = config.as_ref().map_or(Ok(false), |config| {
-            config
-                .get_config()
-                .is_remote_canister(canister, &network.name)
-        })?;
+        let is_remote = config
+            .as_ref()
+            .map_or(Ok(false), |config| {
+                config
+                    .get_config()
+                    .is_remote_canister(canister, &network.name)
+            })
+            .unwrap_or(false);
         if is_remote {
             bail!("Canister '{}' is a remote canister on network '{}', and cannot be installed from here.", canister, &network.name)
         }
@@ -94,6 +100,7 @@ pub async fn exec(
             .and_then(|config| CanisterInfo::load(config, canister, Some(canister_id)));
         if let Some(wasm_path) = opts.wasm {
             // streamlined version, we can ignore most of the environment
+            let mode = mode.context("The install mode cannot be auto when using --wasm")?;
             let install_args = blob_from_arguments(arguments, None, arg_type, &None)?;
             install_canister_wasm(
                 env,
@@ -111,21 +118,20 @@ pub async fn exec(
         } else {
             let canister_info = canister_info
                 .with_context(|| format!("Failed to load canister info for {}.", canister))?;
-            let maybe_path = canister_info.get_output_idl_path();
-            let init_type = maybe_path.and_then(|path| get_candid_init_type(&path));
-            let install_args = blob_from_arguments(arguments, None, arg_type, &init_type)?;
-            let installed_module_hash =
-                read_module_hash(agent, &canister_id_store, &canister_info).await?;
+            let idl_path = canister_info.get_build_idl_path();
+            let init_type = get_candid_init_type(&idl_path);
+            let install_args = || blob_from_arguments(arguments, None, arg_type, &init_type);
             install_canister(
                 env,
                 agent,
+                &mut canister_id_store,
                 &canister_info,
                 &install_args,
                 mode,
                 timeout,
                 call_sender,
-                installed_module_hash,
                 opts.upgrade_unchanged,
+                None,
             )
             .await
         }
@@ -150,21 +156,20 @@ pub async fn exec(
                 let canister_id =
                     Principal::from_text(canister).or_else(|_| canister_id_store.get(canister))?;
                 let canister_info = CanisterInfo::load(&config, canister, Some(canister_id))?;
-                let installed_module_hash =
-                    read_module_hash(agent, &canister_id_store, &canister_info).await?;
 
-                let install_args = [];
+                let install_args = || Ok(vec![]);
 
                 install_canister(
                     env,
                     agent,
+                    &mut canister_id_store,
                     &canister_info,
                     &install_args,
                     mode,
                     timeout,
                     call_sender,
-                    installed_module_hash,
                     opts.upgrade_unchanged,
+                    None,
                 )
                 .await?;
             }
@@ -172,31 +177,5 @@ pub async fn exec(
         Ok(())
     } else {
         unreachable!()
-    }
-}
-
-#[context("Failed to read installed module hash for canister '{}'.", canister_info.get_name())]
-async fn read_module_hash(
-    agent: &Agent,
-    canister_id_store: &CanisterIdStore,
-    canister_info: &CanisterInfo,
-) -> DfxResult<Option<Vec<u8>>> {
-    match canister_id_store.find(canister_info.get_name()) {
-        Some(canister_id) => {
-            match agent
-                .read_state_canister_info(canister_id, "module_hash", false)
-                .await
-            {
-                Ok(installed_module_hash) => Ok(Some(installed_module_hash)),
-                // If the canister is empty, this path does not exist.
-                // The replica doesn't support negative lookups, therefore if the canister
-                // is empty, the replica will return lookup_path([], Pruned _) = Unknown
-                Err(AgentError::LookupPathUnknown(_)) | Err(AgentError::LookupPathAbsent(_)) => {
-                    Ok(None)
-                }
-                Err(x) => bail!(x),
-            }
-        }
-        None => Ok(None),
     }
 }

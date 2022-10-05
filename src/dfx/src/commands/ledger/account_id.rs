@@ -3,7 +3,7 @@ use crate::lib::error::DfxResult;
 use crate::lib::models::canister_id_store::CanisterIdStore;
 use crate::lib::nns_types::account_identifier::{AccountIdentifier, Subaccount};
 use anyhow::{anyhow, Context};
-use ic_types::Principal;
+use candid::Principal;
 
 use clap::Parser;
 
@@ -15,7 +15,7 @@ pub struct AccountIdOpts {
     pub of_principal: Option<Principal>,
 
     #[clap(long, value_name = "ALIAS")]
-    /// Alias of the canister controlling the account.
+    /// Alias or principal of the canister controlling the account.
     pub of_canister: Option<String>,
 
     #[clap(long, value_name = "SUBACCOUNT")]
@@ -33,7 +33,7 @@ pub async fn exec(env: &dyn Environment, opts: AccountIdOpts) -> DfxResult {
         principal
     } else if let Some(alias) = opts.of_canister {
         let canister_id_store = CanisterIdStore::for_env(env)?;
-        canister_id_store.get(&alias)?
+        Principal::from_text(&alias).or_else(|_| canister_id_store.get(&alias))?
     } else {
         env.get_selected_identity_principal()
             .context("No identity is selected")?

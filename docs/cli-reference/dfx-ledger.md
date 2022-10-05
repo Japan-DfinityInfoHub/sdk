@@ -7,7 +7,7 @@ This command can be used to make ICP utility token transactions from one caniste
 The basic syntax for running `dfx ledger` commands is:
 
 ``` bash
-dfx ledger [options] [subcommand]
+dfx ledger [subcommand] [options]
 ```
 
 Depending on the `dfx ledger` subcommand you specify, additional arguments, options, and flags might apply. For reference information and examples that illustrate using `dfx ledger` commands, select an appropriate command.
@@ -45,7 +45,7 @@ You can use the following optional flags with the `dfx ledger account-id` comman
 |------------------------------|--------------------------------------------------------|
 | `-h`, `--help`               | Displays usage information.                            |
 | `-V`, `--version`            | Displays version information.                          |
-| `--of-canister <ALIAS>`      | Alias of the canister controlling the account          |
+| `--of-canister <ALIAS>`      | Alias or principal of the canister controlling the account  |
 | `--of-principal <PRINCIPAL>` | Principal controlling the account                      |
 | `-subaccount <SUBACCOUNT>`   | Subaccount identifier (64 character long hex string)   |
 
@@ -68,7 +68,7 @@ Use the `dfx ledger balance` command to print your account balance or that of an
 ### Basic usage
 
 ``` bash
-dfx ledger --network ic balance [of] [flag]
+dfx ledger balance [of] [flag] --network ic
 ```
 
 ### Flags
@@ -93,7 +93,7 @@ You can specify the following argument for the `dfx ledger balance` command.
 You can use the `dfx ledger balance` command to check the balance of another user. For example, you can run the following command to see the ICP utlity tokens associated with a known Account Identifier:
 
 ``` bash
-dfx ledger --network ic balance 03e3d86f29a069c6f2c5c48e01bc084e4ea18ad02b0eec8fccadf4487183c223
+dfx ledger balance 03e3d86f29a069c6f2c5c48e01bc084e4ea18ad02b0eec8fccadf4487183c223 --network ic
 ```
 
 This command displays an ICP amount similar to the following:
@@ -107,7 +107,7 @@ Use the `dfx ledger create-canister` command to convert ICP tokens to cycles and
 ### Basic usage
 
 ``` bash
-dfx ledger --network ic create-canister controller [options]  [flag]
+dfx ledger create-canister <controller> [options]  [flag] --network ic
 ```
 
 ### Flags
@@ -133,18 +133,20 @@ You can specify the following argument for the `dfx ledger create-canister` comm
 
 | Option                | Description                                                                                                                                                                                                                                          |
 |-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--amount <amount>`   | Specify the number of ICP tokens to mint into cycles and deposit into destination canister. You can specify an amount as a number with up to eight (8) decimal places.                                                                               |
-| `--e8s <e8s>`         | Specify ICP token fractional units—called e8s—as a whole number, where one e8 is smallest partition of an ICP token. For example, 1.05000000 is 1 ICP and 5000000 e8s. You can use this option on its own or in conjunction with the `--icp` option. |
-| `--fee <fee>`         | Specify a transaction fee. The default is 10000 e8s.                                                                                                                                                                                                 |
-| `--icp <icp>`         | Specify ICP tokens as a whole number. You can use this option on its own or in conjunction with `--e8s`.                                                                                                                                             |
-| `--max-fee <max-fee>` | Specify a maximum transaction fee. The default is 10000 e8s.                                                                                                                                                                                         |
+| `--amount <amount>`           | Specify the number of ICP tokens to mint into cycles and deposit into destination canister. You can specify an amount as a number with up to eight (8) decimal places.                                                                               |
+| `--e8s <e8s>`                 | Specify ICP token fractional units—called e8s—as a whole number, where one e8 is smallest partition of an ICP token. For example, 1.05000000 is 1 ICP and 5000000 e8s. You can use this option on its own or in conjunction with the `--icp` option. |
+| `--fee <fee>`                 | Specify a transaction fee. The default is 10000 e8s.                                                                                                                                                                                                 |
+| `--icp <icp>`                 | Specify ICP tokens as a whole number. You can use this option on its own or in conjunction with `--e8s`.                                                                                                                                             |
+| `--max-fee <max-fee>`         | Specify a maximum transaction fee. The default is 10000 e8s.                                                                                                                                                                                         |
+| `--subnet-type <subnet-type>` | Specify the optional subnet type to create the canister on. If no subnet type is provided, the canister will be created on a random default application subnet.                                                                                      |
+
 
 ### Examples
 
 To create a new canister with cycles, transfer ICP tokens from your ledger account by running a command similar to the following:
 
 ``` bash
-dfx ledger --network ic create-canister tsqwz-udeik-5migd-ehrev-pvoqv-szx2g-akh5s-fkyqc-zy6q7-snav6-uqe --amount 1.25
+dfx ledger create-canister tsqwz-udeik-5migd-ehrev-pvoqv-szx2g-akh5s-fkyqc-zy6q7-snav6-uqe --amount 1.25 --network ic
 ```
 
 This command converts the number of ICP tokens you specify for the `--amount` argument into cycles, and associates the cycles with a new canister identifier controlled by the principal you specify.
@@ -159,7 +161,7 @@ If the transaction is successful, the ledger records the event and you should se
 You can create a new canister by specifying separate values for ICP tokens and e8s by running a command similar to the following:
 
 ``` bash
-dfx ledger --network ic create-canister tsqwz-udeik-5migd-ehrev-pvoqv-szx2g-akh5s-fkyqc-zy6q7-snav6-uqe --icp 3 --e8s 5000
+dfx ledger create-canister tsqwz-udeik-5migd-ehrev-pvoqv-szx2g-akh5s-fkyqc-zy6q7-snav6-uqe --icp 3 --e8s 5000 --network ic
 ```
 
 ## dfx ledger fabricate-cycles
@@ -208,9 +210,9 @@ dfx ledger fabricate-cycles --all --amount 8000000000000
 The command displays output similar to the following:
 
 ```
-Fabricating 8000000000000 cycles onto hello
+Fabricating 8000000000000 cycles onto hello_backend
 Fabricated 8000000000000 cycles, updated balance: 11_899_662_119_932 cycles
-Fabricating 8000000000000 cycles onto hello_assets
+Fabricating 8000000000000 cycles onto hello_frontend
 Fabricated 8000000000000 cycles, updated balance: 11_899_075_504_924 cycles
 ```
 
@@ -261,8 +263,49 @@ You can specify the following argument for the `dfx ledger notify` command.
 The following example illustrates sending a `notify` message to the ledger in response to a `_send+` transaction that was recorded at the block height `75948`.
 
 ``` bash
-dfx ledger --network ic notify 75948 tsqwz-udeik-5migd-ehrev-pvoqv-szx2g-akh5s-fkyqc-zy6q7-snav6-uqe
+dfx ledger notify 75948 tsqwz-udeik-5migd-ehrev-pvoqv-szx2g-akh5s-fkyqc-zy6q7-snav6-uqe --network ic
 ```
+
+## dfx ledger show-subnet-types
+
+Use the `dfx ledger show-subnet-types` command to list the available subnet types that can be chosen to create a canister on.
+
+### Basic usage
+
+``` bash
+dfx ledger show-subnet-types [options] [flag]
+```
+
+### Flags
+
+You can use the following optional flags with the `dfx ledger show-subnet-types` command.
+
+| Flag              | Description                   |
+|-------------------|-------------------------------|
+| `-h`, `--help`    | Displays usage information.   |
+| `-V`, `--version` | Displays version information. |
+
+### Options
+
+You can specify the following options for the `dfx ledger show-subnet-types` command.
+
+| Option                | Description                                                                                                                                                                                                                                                 |
+|-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--cycles-minting-canister-id <cycles-minting-canister-id>`   | Canister id of the cycles minting canister. Useful if you want to test locally with a different id for the cycles minting canister. |
+
+### Examples
+
+You can use the `dfx ledger show-subnet-types` command to list the available subnet types that can be chosen to create a canister on. If a specific cycles minting canister id is not provided, then the mainnet cycles minting canister id will be used.
+
+For example, you can run the following command to get the subnet types available on mainnet:
+
+``` bash
+dfx ledger show-subnet-types
+```
+
+This command displays output similar to the following:
+
+    ["Type1", "Type2", ..., "TypeN"]
 
 ## dfx ledger top-up
 
@@ -271,7 +314,7 @@ Use the `dfx ledger top-up` command to top up a canister with cycles minted from
 ### Basic usage
 
 ``` bash
-dfx ledger --network ic top-up [options] canister [flag]
+dfx ledger top-up [options] canister [flag] --network ic
 ```
 
 ### Flags
@@ -310,7 +353,7 @@ You can use the `dfx ledger top-up` command to top up the cycles of a specific c
 For example, you can run the following command to top-up a cycles wallet canister deployed on the Internet Computer with 1 ICP worth of cycles:
 
 ``` bash
-dfx ledger --network ic top-up --icp 1 5a46r-jqaaa-aaaaa-qaadq-cai
+dfx ledger top-up --icp 1 5a46r-jqaaa-aaaaa-qaadq-cai --network ic
 ```
 
 This command displays output similar to the following:
@@ -374,7 +417,7 @@ This command displays output similar to the following:
 You can check the balance of this account by running the following command:
 
 ``` bash
-dfx ledger --network ic balance
+dfx ledger balance --network ic
 ```
 
 This command displays output similar to the following:
@@ -384,11 +427,11 @@ This command displays output similar to the following:
 Use the `dfx ledger transfer` command to send some of your ICP balance to another known destination using the following command:
 
 ``` bash
-dfx ledger --network ic transfer dd81336dbfef5c5870e84b48405c7b229c07ad999fdcacb85b9b9850bd60766f --memo 12345 --icp 1
+dfx ledger transfer dd81336dbfef5c5870e84b48405c7b229c07ad999fdcacb85b9b9850bd60766f --memo 12345 --icp 1 --network ic
 ```
 
 This command displays output similar to the following:
 
     Transfer sent at BlockHeight: 59513
 
-You can then use the `dfx ledger --network ic balance` command to check that your account balance reflects the transaction you just made.
+You can then use the `dfx ledger balance --network ic` command to check that your account balance reflects the transaction you just made.

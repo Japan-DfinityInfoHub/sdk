@@ -3,9 +3,9 @@ use std::path::Path;
 use crate::lib::error::DfxResult;
 
 use super::identity_manager::EncryptionConfiguration;
-use super::identity_utils;
 use super::IdentityConfiguration;
 
+use crate::lib::identity::pem_encryption::PromptMode::{DecryptingToUse, EncryptingToCreate};
 use aes_gcm::aead::{Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::{anyhow, Context};
@@ -20,7 +20,6 @@ pub fn load_pem_file(path: &Path, config: Option<&IdentityConfiguration>) -> Dfx
     let content = std::fs::read(path)
         .with_context(|| format!("Failed to read {}.", path.to_string_lossy()))?;
     let content = maybe_decrypt_pem(content.as_slice(), config)?;
-    identity_utils::validate_pem_file(&content)?;
     Ok(content)
 }
 
@@ -74,7 +73,7 @@ fn maybe_encrypt_pem(
     config: Option<&IdentityConfiguration>,
 ) -> DfxResult<Vec<u8>> {
     if let Some(encryption_config) = config.and_then(|c| c.encryption.as_ref()) {
-        let password = password_prompt()?;
+        let password = password_prompt(EncryptingToCreate)?;
         let result = encrypt(pem_content, encryption_config, &password);
         println!("Encryption complete.");
         result
@@ -96,7 +95,7 @@ fn maybe_decrypt_pem(
     config: Option<&IdentityConfiguration>,
 ) -> DfxResult<Vec<u8>> {
     if let Some(decryption_config) = config.and_then(|c| c.encryption.as_ref()) {
-        let password = password_prompt()?;
+        let password = password_prompt(DecryptingToUse)?;
         let result = decrypt(pem_content, decryption_config, &password);
         if result.is_ok() {
             // print to stderr so that output redirection works for the identity export command
@@ -108,10 +107,19 @@ fn maybe_decrypt_pem(
     }
 }
 
+enum PromptMode {
+    EncryptingToCreate,
+    DecryptingToUse,
+}
+
 #[context("Failed to prompt user for password.")]
-fn password_prompt() -> DfxResult<String> {
+fn password_prompt(mode: PromptMode) -> DfxResult<String> {
+    let prompt = match mode {
+        PromptMode::EncryptingToCreate => "Please enter a passphrase for your identity",
+        PromptMode::DecryptingToUse => "Please enter the passphrase for your identity",
+    };
     let pw = dialoguer::Password::new()
-        .with_prompt("Please enter a passphrase for your identity")
+        .with_prompt(prompt)
         .interact()
         .context("Failed to read user input.")?;
     Ok(pw)

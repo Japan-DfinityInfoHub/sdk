@@ -4,19 +4,24 @@ use crate::lib::error::DfxResult;
 use crate::lib::models::canister::CanisterPool;
 use crate::lib::models::canister_id_store::CanisterIdStore;
 use crate::lib::provider::create_agent_environment;
+use crate::NetworkOpt;
 
 use clap::Parser;
+use tokio::runtime::Runtime;
 
 /// Generate type declarations for canisters from the code in your project
 #[derive(Parser)]
 pub struct GenerateOpts {
-    /// Specifies the name of the canister to build.
-    /// If you do not specify a canister names, generates types for all canisters.
+    /// Specifies the name of the canister to generate type information for.
+    /// If you do not specify a canister name, generates types for all canisters.
     canister_name: Option<String>,
+
+    #[clap(flatten)]
+    network: NetworkOpt,
 }
 
 pub fn exec(env: &dyn Environment, opts: GenerateOpts) -> DfxResult {
-    let env = create_agent_environment(env, None)?;
+    let env = create_agent_environment(env, opts.network.network)?;
 
     // Read the config.
     let config = env.get_config_or_anyhow()?;
@@ -41,7 +46,7 @@ pub fn exec(env: &dyn Environment, opts: GenerateOpts) -> DfxResult {
         let canister_name = canister.get_name();
         let canister_id = store.get(canister_name)?;
         if let Some(info) = canister_pool.get_canister_info(&canister_id) {
-            if info.get_type() == "motoko" {
+            if info.is_motoko() {
                 build_before_generate = true;
             }
         }
@@ -54,7 +59,8 @@ pub fn exec(env: &dyn Environment, opts: GenerateOpts) -> DfxResult {
             env.get_logger(),
             "Building canisters before generate for Motoko"
         );
-        canister_pool.build_or_fail(&build_config)?;
+        let runtime = Runtime::new().expect("Unable to create a runtime");
+        runtime.block_on(canister_pool.build_or_fail(&build_config))?;
     }
 
     for canister in canister_pool.get_canister_list() {

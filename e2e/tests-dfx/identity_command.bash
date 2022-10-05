@@ -18,8 +18,8 @@ teardown() {
     assert_command dfx identity new --disable-encryption jose
     assert_command dfx identity new --disable-encryption juana
 
-    PRINCPAL_ID_JOSE=$(dfx --identity jose identity get-principal)
-    PRINCPAL_ID_JUANA=$(dfx --identity juana identity get-principal)
+    PRINCPAL_ID_JOSE=$(dfx identity get-principal --identity jose)
+    PRINCPAL_ID_JUANA=$(dfx identity get-principal --identity juana)
 
     if [ "$PRINCPAL_ID_JOSE" -eq "$PRINCPAL_ID_JUANA" ]; then
       echo "IDs should not match: Jose '${PRINCPAL_ID_JOSE}' == Juana '${PRINCPAL_ID_JUANA}'..." | fail
@@ -36,10 +36,23 @@ teardown() {
     assert_command dfx identity new --disable-encryption alice
     assert_command dfx identity new --disable-encryption bob
     assert_command dfx identity list
-    assert_match 'alice anonymous bob dan default frank'
+    assert_match \
+'alice
+anonymous
+bob
+dan
+default
+frank'
     assert_command dfx identity new --disable-encryption charlie
     assert_command dfx identity list
-    assert_match 'alice anonymous bob charlie dan default frank'
+    assert_match \
+'alice
+anonymous
+bob
+charlie
+dan
+default
+frank'
 }
 
 @test "identity list: shows the anonymous identity" {
@@ -63,7 +76,7 @@ teardown() {
     assert_command dfx identity new --disable-encryption alice
     assert_match 'Created identity: "alice".' "$stderr"
     assert_command head "$DFX_CONFIG_ROOT/.config/dfx/identity/alice/identity.pem"
-    assert_match "BEGIN PRIVATE KEY"
+    assert_match "BEGIN EC PRIVATE KEY"
 
     # does not change the default identity
     assert_command dfx identity whoami
@@ -116,9 +129,12 @@ teardown() {
     assert_command dfx identity new --disable-encryption alice
 
     assert_command head "$DFX_CONFIG_ROOT/.config/dfx/identity/alice/identity.pem"
-    assert_match "BEGIN PRIVATE KEY"
+    assert_match "BEGIN EC PRIVATE KEY"
     assert_command dfx identity list
-    assert_match 'alice anonymous default'
+    assert_match \
+'alice
+anonymous
+default'
 
     assert_command dfx identity remove alice
     assert_match 'Removed identity "alice".' "$stderr"
@@ -137,7 +153,7 @@ teardown() {
     WALLET="rwlgt-iiaaa-aaaaa-aaaaa-cai"
     assert_command dfx identity new --disable-encryption alice
     assert_command dfx identity use alice
-    assert_command dfx identity --network ic set-wallet --force "$WALLET"
+    assert_command dfx identity set-wallet --force "$WALLET" --network ic
     assert_command dfx identity use default
     assert_command_fail dfx identity remove alice
     # make sure the configured wallet is displayed
@@ -152,9 +168,12 @@ teardown() {
     assert_command_fail dfx identity remove alice
 
     assert_command head "$DFX_CONFIG_ROOT/.config/dfx/identity/alice/identity.pem"
-    assert_match "BEGIN PRIVATE KEY"
+    assert_match "BEGIN EC PRIVATE KEY"
     assert_command dfx identity list
-    assert_match 'alice anonymous default'
+    assert_match \
+'alice
+anonymous
+default'
 }
 
 @test "identity remove: cannot remove the default identity" {
@@ -187,9 +206,12 @@ teardown() {
 @test "identity rename: can rename an identity" {
     assert_command dfx identity new --disable-encryption alice
     assert_command dfx identity list
-    assert_match 'alice anonymous default'
+    assert_match \
+'alice
+anonymous
+default'
     assert_command head "$DFX_CONFIG_ROOT/.config/dfx/identity/alice/identity.pem"
-    assert_match "BEGIN PRIVATE KEY"
+    assert_match "BEGIN EC PRIVATE KEY"
     x=$(cat "$DFX_CONFIG_ROOT/.config/dfx/identity/alice/identity.pem")
     local key="$x"
 
@@ -197,10 +219,13 @@ teardown() {
     assert_match 'Renamed identity "alice" to "bob".' "$stderr"
 
     assert_command dfx identity list
-    assert_match 'anonymous bob default'
+    assert_match \
+'anonymous
+bob
+default'
     assert_command cat "$DFX_CONFIG_ROOT/.config/dfx/identity/bob/identity.pem"
     assert_eq "$key" "$(cat "$DFX_CONFIG_ROOT/.config/dfx/identity/bob/identity.pem")"
-    assert_match "BEGIN PRIVATE KEY"
+    assert_match "BEGIN EC PRIVATE KEY"
     assert_command_fail cat "$DFX_CONFIG_ROOT/.config/dfx/identity/alice/identity.pem"
 }
 
@@ -211,7 +236,7 @@ teardown() {
     assert_command dfx identity list
     assert_match 'bob'
     assert_command head "$DFX_CONFIG_ROOT/.config/dfx/identity/bob/identity.pem"
-    assert_match "BEGIN PRIVATE KEY"
+    assert_match "BEGIN EC PRIVATE KEY"
 
     assert_command dfx identity whoami
     assert_eq 'bob'
@@ -221,17 +246,23 @@ teardown() {
     assert_command dfx identity new --disable-encryption alice
     assert_command dfx identity use alice
     assert_command dfx identity list
-    assert_match 'alice anonymous default'
+    assert_match \
+'alice
+anonymous
+default'
     assert_command dfx identity rename alice charlie
 
     assert_command dfx identity list
-    assert_match 'anonymous charlie default'
+    assert_match \
+'anonymous
+charlie
+default'
 
     assert_command dfx identity whoami
     assert_eq 'charlie'
 
     assert_command head "$DFX_CONFIG_ROOT/.config/dfx/identity/charlie/identity.pem"
-    assert_match "BEGIN PRIVATE KEY"
+    assert_match "BEGIN EC PRIVATE KEY"
     assert_command_fail cat "$DFX_CONFIG_ROOT/.config/dfx/identity/alice/identity.pem"
 }
 
@@ -308,20 +339,20 @@ teardown() {
     assert_eq 'charlie'
 }
 
-## dfx --identity (+other commands)
+## dfx (+other commands) --identity
 
-@test "dfx --identity (name) identity whoami: shows the overriding identity" {
+@test "dfx identity whoami --identity (name): shows the overriding identity" {
     assert_command dfx identity whoami
     assert_eq 'default' "$stdout"
     assert_command dfx identity new --disable-encryption charlie
     assert_command dfx identity new --disable-encryption alice
-    assert_command dfx --identity charlie identity whoami
+    assert_command dfx identity whoami --identity charlie
     assert_eq 'charlie'
-    assert_command dfx --identity alice identity whoami
+    assert_command dfx identity whoami --identity alice
     assert_eq 'alice'
 }
 
-@test "dfx --identity does not persistently change the selected identity" {
+@test "dfx (command) --identity does not persistently change the selected identity" {
     assert_command dfx identity whoami
     assert_eq 'default' "$stdout"
     assert_command dfx identity new --disable-encryption charlie
@@ -329,7 +360,7 @@ teardown() {
     assert_command dfx identity use charlie
     assert_command dfx identity whoami
     assert_eq 'charlie'
-    assert_command dfx --identity alice identity whoami
+    assert_command dfx identity whoami --identity alice
     assert_eq 'alice'
     assert_command dfx identity whoami
     assert_eq 'charlie'
@@ -396,7 +427,7 @@ teardown() {
     echo -n 1 >> bob.pem
     tail -n 3 alice.pem > bob.pem
     assert_command_fail dfx identity import --disable-encryption bob bob.pem
-    assert_match 'Invalid Ed25519 private key in PEM file' "$stderr"
+    assert_match 'Failed to validate PEM content' "$stderr"
 }
 
 @test "identity: can import an EC key without an EC PARAMETERS section (as quill generate makes)" {
@@ -408,10 +439,10 @@ oUQDQgAEBQKn0CLyiA/fQf6L8S07/MDJ9kIJTzZvm2jFo2/yvSToGee+XzP/GCE4
 -----END EC PRIVATE KEY-----
 XXX
     assert_command dfx identity import --disable-encryption private-key-no-ec-parameters private-key-no-ec-parameters.pem
-    assert_command dfx --identity private-key-no-ec-parameters identity get-principal
+    assert_command dfx identity get-principal --identity private-key-no-ec-parameters
     assert_eq "j4p4p-o5ogq-4gzev-t3kay-hpm5o-xuwpz-yvrpp-47cc4-qyunt-k76yw-qae"
     echo "{}" >dfx.json # avoid "dfx.json not found, using default."
-    assert_command dfx --identity private-key-no-ec-parameters ledger account-id
+    assert_command dfx ledger account-id --identity private-key-no-ec-parameters
     assert_eq "3c00cf85d77b9dbf74a2acec1d9a9e73a3fc65f5048c64800b15f3b2c4c8eb11"
 }
 
@@ -420,4 +451,22 @@ XXX
     dfx identity export alice > export.pem
     assert_file_exists export.pem
     assert_command dfx identity import --disable-encryption bob export.pem
+}
+
+@test "identity: can import a seed phrase" {
+    reg="seed phrase for identity 'alice': ([a-z ]+)"
+    assert_command dfx identity new --disable-encryption alice
+    [[ $stderr =~ $reg ]]
+    echo "${BASH_REMATCH[1]}" >seed.txt
+    principal=$(dfx identity get-principal --identity alice)
+    assert_command dfx identity import alice2 --seed-file seed.txt --disable-encryption
+    assert_command dfx identity get-principal --identity alice2
+    assert_eq "$principal"
+}
+
+@test "identity: consistently imports a known seed phrase" {
+    echo "hollow damage this yard journey anchor tool fat action school cash ridge oval beef tribe magnet apology cabbage leisure group sign around object exact">seed.txt
+    assert_command dfx identity import alice --seed-file seed.txt --disable-encryption
+    assert_command dfx identity get-principal --identity alice
+    assert_eq "zs7ty-uv4vo-rvgkk-srfjo-hjaxr-w55wx-ybo5x-qx7k3-noknf-wzwe5-pqe"
 }

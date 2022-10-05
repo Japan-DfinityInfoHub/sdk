@@ -20,8 +20,9 @@ use crossbeam::channel::{unbounded, Receiver, Sender};
 use garcon::{Delay, Waiter};
 use slog::{debug, info, Logger};
 use std::path::{Path, PathBuf};
-use std::thread::JoinHandle;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use tokio::runtime::Builder;
 
 pub mod signals {
     use actix::prelude::*;
@@ -40,9 +41,9 @@ pub struct Config {
     pub ic_starter_path: PathBuf,
     pub replica_config: ReplicaConfig,
     pub replica_path: PathBuf,
+    pub replica_pid_path: PathBuf,
     pub shutdown_controller: Addr<ShutdownController>,
     pub logger: Option<Logger>,
-    pub replica_configuration_dir: PathBuf,
     pub btc_adapter_ready_subscribe: Option<Recipient<BtcAdapterReadySubscribe>>,
     pub canister_http_adapter_ready_subscribe: Option<Recipient<CanisterHttpAdapterReadySubscribe>>,
 }
@@ -124,11 +125,10 @@ impl Replica {
 
     fn start_replica(&mut self, addr: Addr<Self>) -> DfxResult {
         let logger = self.logger.clone();
-        debug!(logger, "starting replica");
 
         // Create a replica config.
         let config = &self.config.replica_config;
-        let replica_pid_path = self.config.replica_configuration_dir.join("replica-pid");
+        let replica_pid_path = self.config.replica_pid_path.to_path_buf();
 
         let port = config.http_handler.port;
         let write_port_to = config.http_handler.write_port_to.clone();
@@ -268,7 +268,6 @@ impl Handler<Shutdown> for Replica {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn replica_start_thread(
     logger: Logger,
     config: ReplicaConfig,
@@ -304,18 +303,30 @@ fn replica_start_thread(
             "rocksdb",
             "--subnet-type",
             &config.subnet_type.as_ic_starter_string(),
+            "--ecdsa-keyid",
+            "Secp256k1:dfx_test_key",
+            "--log-level",
+            &config.log_level.as_ic_starter_string(),
         ]);
         if let Some(port) = port {
             cmd.args(&["--http-port", &port.to_string()]);
         }
+        // Enable canister sandboxing to be consistent with the mainnet.
+        // The flag will be removed on the `ic-starter` side once this
+        // change is rolled out without any issues.
+        cmd.args(&["--subnet-features", "canister_sandboxing"]);
         if config.btc_adapter.enabled {
-            cmd.args(&["--subnet-features", "bitcoin_testnet"]);
+            cmd.args(&["--subnet-features", "bitcoin_regtest"]);
             if let Some(socket_path) = config.btc_adapter.socket_path {
                 cmd.args(&[
                     "--bitcoin-testnet-uds-path",
                     socket_path.to_str().unwrap_or_default(),
                 ]);
             }
+
+            // Show debug logs from the bitcoin canister.
+            // This helps developers see, for example, the current tip height.
+            cmd.args(&["--debug-overrides", "ic_btc_canister::heartbeat"]);
         }
         if config.canister_http_adapter.enabled {
             cmd.args(&["--subnet-features", "http_requests"]);
@@ -365,6 +376,19 @@ fn replica_start_thread(
                 Replica::wait_for_port_file(write_port_to.as_ref().unwrap()).unwrap()
             });
             addr.do_send(signals::ReplicaRestarted { port });
+            let log_clone = logger.clone();
+            thread::spawn(move || {
+                Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(async move {
+                        crate::lib::provider::ping_and_wait(&format!("http://localhost:{port}"))
+                            .await
+                            .unwrap();
+                        info!(log_clone, "Dashboard: http://localhost:{port}/_/dashboard");
+                    })
+            });
 
             // This waits for the child to stop, or the receiver to receive a message.
             // We don't restart the replica if done = true.

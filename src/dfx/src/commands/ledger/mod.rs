@@ -10,15 +10,16 @@ use crate::lib::nns_types::icpts::ICPTs;
 use crate::lib::provider::create_agent_environment;
 use crate::lib::waiter::waiter_with_timeout;
 use crate::util::expiry_duration;
+use crate::NetworkOpt;
 
 use anyhow::{anyhow, bail, Context};
+use candid::Principal;
 use candid::{Decode, Encode};
 use clap::Parser;
 use fn_error_context::context;
 use garcon::{Delay, Waiter};
 use ic_agent::agent_error::HttpErrorPayload;
 use ic_agent::{Agent, AgentError};
-use ic_types::Principal;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
@@ -29,9 +30,10 @@ const NOTIFY_CREATE_METHOD: &str = "notify_create_canister";
 
 mod account_id;
 mod balance;
-mod create_canister;
+pub mod create_canister;
 mod fabricate_cycles;
 mod notify;
+pub mod show_subnet_types;
 mod top_up;
 mod transfer;
 
@@ -39,9 +41,8 @@ mod transfer;
 #[derive(Parser)]
 #[clap(name("ledger"))]
 pub struct LedgerOpts {
-    /// Override the compute network to connect to. By default, the local network is used.
-    #[clap(long)]
-    network: Option<String>,
+    #[clap(flatten)]
+    network: NetworkOpt,
 
     #[clap(subcommand)]
     subcmd: SubCommand,
@@ -54,12 +55,13 @@ enum SubCommand {
     CreateCanister(create_canister::CreateCanisterOpts),
     FabricateCycles(fabricate_cycles::FabricateCyclesOpts),
     Notify(notify::NotifyOpts),
+    ShowSubnetTypes(show_subnet_types::ShowSubnetTypesOpts),
     TopUp(top_up::TopUpOpts),
     Transfer(transfer::TransferOpts),
 }
 
 pub fn exec(env: &dyn Environment, opts: LedgerOpts) -> DfxResult {
-    let agent_env = create_agent_environment(env, opts.network.clone())?;
+    let agent_env = create_agent_environment(env, opts.network.network)?;
     let runtime = Runtime::new().expect("Unable to create a runtime");
     runtime.block_on(async {
         match opts.subcmd {
@@ -68,6 +70,7 @@ pub fn exec(env: &dyn Environment, opts: LedgerOpts) -> DfxResult {
             SubCommand::CreateCanister(v) => create_canister::exec(&agent_env, v).await,
             SubCommand::FabricateCycles(v) => fabricate_cycles::exec(&agent_env, v).await,
             SubCommand::Notify(v) => notify::exec(&agent_env, v).await,
+            SubCommand::ShowSubnetTypes(v) => show_subnet_types::exec(&agent_env, v).await,
             SubCommand::TopUp(v) => top_up::exec(&agent_env, v).await,
             SubCommand::Transfer(v) => transfer::exec(&agent_env, v).await,
         }
@@ -172,7 +175,7 @@ pub async fn transfer(
     Ok(block_height)
 }
 
-async fn transfer_cmc(
+pub async fn transfer_cmc(
     agent: &Agent,
     memo: Memo,
     amount: ICPTs,
@@ -195,10 +198,11 @@ async fn transfer_cmc(
     .await
 }
 
-async fn notify_create(
+pub async fn notify_create(
     agent: &Agent,
     controller: Principal,
     block_height: BlockHeight,
+    subnet_type: Option<String>,
 ) -> DfxResult<NotifyCreateCanisterResult> {
     let result = agent
         .update(&MAINNET_CYCLE_MINTER_CANISTER_ID, NOTIFY_CREATE_METHOD)
@@ -206,6 +210,7 @@ async fn notify_create(
             Encode!(&NotifyCreateCanisterArg {
                 block_index: block_height,
                 controller,
+                subnet_type,
             })
             .context("Failed to encode notify arguments.")?,
         )
@@ -217,7 +222,7 @@ async fn notify_create(
     Ok(result)
 }
 
-async fn notify_top_up(
+pub async fn notify_top_up(
     agent: &Agent,
     canister: Principal,
     block_height: BlockHeight,

@@ -1,5 +1,5 @@
 use crate::config::cache::{Cache, DiskBasedCache};
-use crate::config::dfinity::Config;
+use crate::config::dfinity::{Config, NetworksConfig};
 use crate::config::{cache, dfx_version};
 use crate::lib::error::DfxResult;
 use crate::lib::identity::identity_manager::IdentityManager;
@@ -7,31 +7,29 @@ use crate::lib::network::network_descriptor::NetworkDescriptor;
 use crate::lib::progress_bar::ProgressBar;
 
 use anyhow::{anyhow, Context};
+use candid::Principal;
 use fn_error_context::context;
 use ic_agent::{Agent, Identity};
-use ic_types::Principal;
 use semver::Version;
 use slog::{Logger, Record};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs::create_dir_all;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub trait Environment {
     fn get_cache(&self) -> Arc<dyn Cache>;
     fn get_config(&self) -> Option<Arc<Config>>;
+    fn get_networks_config(&self) -> Arc<NetworksConfig>;
     fn get_config_or_anyhow(&self) -> anyhow::Result<Arc<Config>>;
 
     fn is_in_project(&self) -> bool;
-    /// Return a temporary directory for configuration if none exists
-    /// for the current project or if not in a project. Following
-    /// invocations by other processes in the same project should
-    /// return the same configuration directory.
-    fn get_temp_dir(&self) -> &Path;
-    /// Return the directory where state for replica(s) is kept.
-    fn get_state_dir(&self) -> PathBuf;
+    /// Return a temporary directory for the current project.
+    /// If there is no project (no dfx.json), there is no project temp dir.
+    fn get_project_temp_dir(&self) -> Option<PathBuf>;
+
     fn get_version(&self) -> &Version;
 
     /// This is value of the name passed to dfx `--identity <name>`
@@ -46,6 +44,7 @@ pub trait Environment {
     fn get_network_descriptor<'a>(&'a self) -> &'a NetworkDescriptor;
 
     fn get_logger(&self) -> &slog::Logger;
+    fn get_verbose_level(&self) -> i64;
     fn new_spinner(&self, message: Cow<'static, str>) -> ProgressBar;
     fn new_progress(&self, message: &str) -> ProgressBar;
 
@@ -62,33 +61,28 @@ pub trait Environment {
 
 pub struct EnvironmentImpl {
     config: Option<Arc<Config>>,
-    temp_dir: PathBuf,
+    shared_networks_config: Arc<NetworksConfig>,
 
     cache: Arc<dyn Cache>,
 
     version: Version,
 
     logger: Option<slog::Logger>,
-    progress: bool,
+    verbose_level: i64,
 
     identity_override: Option<String>,
 }
 
 impl EnvironmentImpl {
     pub fn new() -> DfxResult<Self> {
+        let shared_networks_config = NetworksConfig::new()?;
         let config = Config::from_current_dir()?;
-        let temp_dir = match &config {
-            None => tempfile::tempdir()
-                .expect("Could not create a temporary directory.")
-                .into_path(),
-            Some(c) => c.get_path().parent().unwrap().join(".dfx"),
-        };
-        create_dir_all(&temp_dir).with_context(|| {
-            format!(
-                "Failed to create temp directory {}.",
-                temp_dir.to_string_lossy()
-            )
-        })?;
+        if let Some(ref config) = config {
+            let temp_dir = config.get_temp_path();
+            create_dir_all(&temp_dir).with_context(|| {
+                format!("Failed to create temp directory {}.", temp_dir.display())
+            })?;
+        }
 
         // Figure out which version of DFX we should be running. This will use the following
         // fallback sequence:
@@ -120,10 +114,10 @@ impl EnvironmentImpl {
         Ok(EnvironmentImpl {
             cache: Arc::new(DiskBasedCache::with_version(&version)),
             config: config.map(Arc::new),
-            temp_dir,
+            shared_networks_config: Arc::new(shared_networks_config),
             version: version.clone(),
             logger: None,
-            progress: true,
+            verbose_level: 0,
             identity_override: None,
         })
     }
@@ -133,13 +127,13 @@ impl EnvironmentImpl {
         self
     }
 
-    pub fn with_progress_bar(mut self, progress: bool) -> Self {
-        self.progress = progress;
+    pub fn with_identity_override(mut self, identity: Option<String>) -> Self {
+        self.identity_override = identity;
         self
     }
 
-    pub fn with_identity_override(mut self, identity: Option<String>) -> Self {
-        self.identity_override = identity;
+    pub fn with_verbose_level(mut self, verbose_level: i64) -> Self {
+        self.verbose_level = verbose_level;
         self
     }
 }
@@ -153,6 +147,10 @@ impl Environment for EnvironmentImpl {
         self.config.as_ref().map(Arc::clone)
     }
 
+    fn get_networks_config(&self) -> Arc<NetworksConfig> {
+        self.shared_networks_config.clone()
+    }
+
     fn get_config_or_anyhow(&self) -> anyhow::Result<Arc<Config>> {
         self.get_config().ok_or_else(|| anyhow!(
             "Cannot find dfx configuration file in the current working directory. Did you forget to create one?"
@@ -163,12 +161,8 @@ impl Environment for EnvironmentImpl {
         self.config.is_some()
     }
 
-    fn get_temp_dir(&self) -> &Path {
-        &self.temp_dir
-    }
-
-    fn get_state_dir(&self) -> PathBuf {
-        self.get_temp_dir().join("state")
+    fn get_project_temp_dir(&self) -> Option<PathBuf> {
+        self.config.as_ref().map(|c| c.get_temp_path())
     }
 
     fn get_version(&self) -> &Version {
@@ -197,8 +191,13 @@ impl Environment for EnvironmentImpl {
             .expect("Log was not setup, but is being used.")
     }
 
+    fn get_verbose_level(&self) -> i64 {
+        self.verbose_level
+    }
+
     fn new_spinner(&self, message: Cow<'static, str>) -> ProgressBar {
-        if self.progress {
+        // Only show the progress bar if the level is INFO or more.
+        if self.verbose_level >= 0 {
             ProgressBar::new_spinner(message)
         } else {
             ProgressBar::discard()
@@ -255,6 +254,10 @@ impl<'a> Environment for AgentEnvironment<'a> {
         self.backend.get_config()
     }
 
+    fn get_networks_config(&self) -> Arc<NetworksConfig> {
+        self.backend.get_networks_config()
+    }
+
     fn get_config_or_anyhow(&self) -> anyhow::Result<Arc<Config>> {
         self.get_config().ok_or_else(|| anyhow!(
             "Cannot find dfx configuration file in the current working directory. Did you forget to create one?"
@@ -265,12 +268,8 @@ impl<'a> Environment for AgentEnvironment<'a> {
         self.backend.is_in_project()
     }
 
-    fn get_temp_dir(&self) -> &Path {
-        self.backend.get_temp_dir()
-    }
-
-    fn get_state_dir(&self) -> PathBuf {
-        self.backend.get_state_dir()
+    fn get_project_temp_dir(&self) -> Option<PathBuf> {
+        self.backend.get_project_temp_dir()
     }
 
     fn get_version(&self) -> &Version {
@@ -291,6 +290,10 @@ impl<'a> Environment for AgentEnvironment<'a> {
 
     fn get_logger(&self) -> &slog::Logger {
         self.backend.get_logger()
+    }
+
+    fn get_verbose_level(&self) -> i64 {
+        self.backend.get_verbose_level()
     }
 
     fn new_spinner(&self, message: Cow<'static, str>) -> ProgressBar {

@@ -12,16 +12,16 @@
       "candid": "main.did",
       "wasm": "main.wasm",
       "build": "build.sh"
+    },
+    "custom3": {
+      "type": "custom",
+      "candid": "main.did",
+      "wasm": "main.wasm"
     }
   },
   "defaults": {
     "build": {
       "output": "canisters/"
-    }
-  },
-  "networks": {
-    "local": {
-      "bind": "127.0.0.1:8000"
     }
   }
 }

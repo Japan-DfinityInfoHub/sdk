@@ -5,6 +5,7 @@ use crate::lib::provider::create_agent_environment;
 use crate::lib::root_key::fetch_root_key_if_needed;
 use crate::lib::waiter::waiter_with_timeout;
 use crate::util::expiry_duration;
+use crate::NetworkOpt;
 
 use anyhow::Context;
 use candid::utils::ArgumentDecoder;
@@ -23,6 +24,7 @@ mod custodians;
 mod deauthorize;
 mod list_addresses;
 mod name;
+mod redeem_faucet_coupon;
 mod remove_controller;
 mod send;
 mod set_name;
@@ -32,12 +34,8 @@ mod upgrade;
 #[derive(Parser)]
 #[clap(name("wallet"))]
 pub struct WalletOpts {
-    /// Override the compute network to connect to. By default, the local network is used.
-    /// A valid URL (starting with `http:` or `https:`) can be used here, and a special
-    /// ephemeral network will be created specifically for this request. E.g.
-    /// "http://localhost:12345/" is a valid network name.
-    #[clap(long)]
-    network: Option<String>,
+    #[clap(flatten)]
+    network: NetworkOpt,
 
     #[clap(subcommand)]
     subcmd: SubCommand,
@@ -53,6 +51,7 @@ enum SubCommand {
     Custodians(custodians::CustodiansOpts),
     Deauthorize(deauthorize::DeauthorizeOpts),
     Name(name::NameOpts),
+    RedeemFaucetCoupon(redeem_faucet_coupon::RedeemFaucetCouponOpts),
     RemoveController(remove_controller::RemoveControllerOpts),
     Send(send::SendOpts),
     SetName(set_name::SetNameOpts),
@@ -60,7 +59,7 @@ enum SubCommand {
 }
 
 pub fn exec(env: &dyn Environment, opts: WalletOpts) -> DfxResult {
-    let agent_env = create_agent_environment(env, opts.network.clone())?;
+    let agent_env = create_agent_environment(env, opts.network.network)?;
     let runtime = Runtime::new().expect("Unable to create a runtime");
     runtime.block_on(async {
         match opts.subcmd {
@@ -72,6 +71,7 @@ pub fn exec(env: &dyn Environment, opts: WalletOpts) -> DfxResult {
             SubCommand::Custodians(v) => custodians::exec(&agent_env, v).await,
             SubCommand::Deauthorize(v) => deauthorize::exec(&agent_env, v).await,
             SubCommand::Name(v) => name::exec(&agent_env, v).await,
+            SubCommand::RedeemFaucetCoupon(v) => redeem_faucet_coupon::exec(&agent_env, v).await,
             SubCommand::RemoveController(v) => remove_controller::exec(&agent_env, v).await,
             SubCommand::Send(v) => send::exec(&agent_env, v).await,
             SubCommand::SetName(v) => set_name::exec(&agent_env, v).await,
@@ -92,8 +92,7 @@ where
         .to_string();
     // Network descriptor will always be set.
     let network = env.get_network_descriptor();
-    let wallet =
-        Identity::get_or_create_wallet_canister(env, network, &identity_name, false).await?;
+    let wallet = Identity::get_or_create_wallet_canister(env, network, &identity_name).await?;
 
     let out: O = wallet
         .query_(method)
@@ -130,7 +129,6 @@ async fn get_wallet(env: &dyn Environment) -> DfxResult<WalletCanister<'_>> {
     // Network descriptor will always be set.
     let network = env.get_network_descriptor();
     fetch_root_key_if_needed(env).await?;
-    let wallet =
-        Identity::get_or_create_wallet_canister(env, network, &identity_name, false).await?;
+    let wallet = Identity::get_or_create_wallet_canister(env, network, &identity_name).await?;
     Ok(wallet)
 }

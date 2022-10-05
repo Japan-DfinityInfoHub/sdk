@@ -1,5 +1,6 @@
 use crate::lib::environment::Environment;
 use crate::lib::error::DfxResult;
+use crate::NetworkOpt;
 
 use clap::Parser;
 
@@ -20,10 +21,9 @@ mod whoami;
 /// Setting an identity enables you to test user-based access controls.
 #[derive(Parser)]
 #[clap(name("identity"))]
-pub struct IdentityOpt {
-    /// Override the compute network to connect to. By default, the local network is used.
-    #[clap(long)]
-    network: Option<String>,
+pub struct IdentityOpts {
+    #[clap(flatten)]
+    network: NetworkOpt,
 
     #[clap(subcommand)]
     subcmd: SubCommand,
@@ -45,18 +45,18 @@ enum SubCommand {
     Whoami(whoami::WhoAmIOpts),
 }
 
-pub fn exec(env: &dyn Environment, opts: IdentityOpt) -> DfxResult {
+pub fn exec(env: &dyn Environment, opts: IdentityOpts) -> DfxResult {
     match opts.subcmd {
-        SubCommand::DeployWallet(v) => deploy_wallet::exec(env, v, opts.network.clone()),
+        SubCommand::DeployWallet(v) => deploy_wallet::exec(env, v, opts.network.network),
         SubCommand::Export(v) => export::exec(env, v),
-        SubCommand::GetWallet(v) => get_wallet::exec(env, v, opts.network.clone()),
+        SubCommand::GetWallet(v) => get_wallet::exec(env, v, opts.network.network),
         SubCommand::List(v) => list::exec(env, v),
         SubCommand::New(v) => new::exec(env, v),
         SubCommand::GetPrincipal(v) => principal::exec(env, v),
         SubCommand::Import(v) => import::exec(env, v),
         SubCommand::Remove(v) => remove::exec(env, v),
         SubCommand::Rename(v) => rename::exec(env, v),
-        SubCommand::SetWallet(v) => set_wallet::exec(env, v, opts.network.clone()),
+        SubCommand::SetWallet(v) => set_wallet::exec(env, v, opts.network.network),
         SubCommand::Use(v) => r#use::exec(env, v),
         SubCommand::Whoami(v) => whoami::exec(env, v),
     }

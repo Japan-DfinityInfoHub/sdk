@@ -12,8 +12,8 @@ use crate::lib::models::canister::CanisterPool;
 use crate::lib::package_arguments::{self, PackageArguments};
 
 use anyhow::Context;
+use candid::Principal as CanisterId;
 use fn_error_context::context;
-use ic_types::principal::Principal as CanisterId;
 use slog::{info, o, trace, warn, Logger};
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::TryFrom;
@@ -102,10 +102,6 @@ impl CanisterBuilder for MotokoBuilder {
             .collect())
     }
 
-    fn supports(&self, info: &CanisterInfo) -> bool {
-        info.get_type() == "motoko"
-    }
-
     #[context("Failed to build Motoko canister '{}'.", canister_info.get_name())]
     fn build(
         &self,
@@ -162,12 +158,17 @@ impl CanisterBuilder for MotokoBuilder {
         };
         motoko_compile(&self.logger, cache.as_ref(), &params)?;
 
+        if canister_info.get_shrink() {
+            info!(self.logger, "Shrink WASM module size.");
+            super::shrink_wasm(motoko_info.get_output_wasm_path())?;
+        }
         Ok(BuildOutput {
             canister_id: canister_info
                 .get_canister_id()
                 .expect("Could not find canister ID."),
             wasm: WasmBuildOutput::File(motoko_info.get_output_wasm_path().to_path_buf()),
             idl: IdlBuildOutput::File(motoko_info.get_output_idl_path().to_path_buf()),
+            add_candid_service_metadata: false,
         })
     }
 

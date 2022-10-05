@@ -1,12 +1,17 @@
 use crate::config::dfinity::{ConfigCanistersCanister, ConfigInterface, CONFIG_FILE_NAME};
 use crate::error_invalid_data;
+use crate::lib::builders::BuildConfig;
 use crate::lib::environment::Environment;
 use crate::lib::error::DfxResult;
+use crate::lib::models::canister_id_store::CanisterIdStore;
 use crate::lib::package_arguments::{self, PackageArguments};
+use crate::lib::provider::{create_network_descriptor, LocalBindDetermination};
 
 use anyhow::{anyhow, bail, Context};
+use candid::Principal;
 use clap::Parser;
 use fn_error_context::context;
+use std::path::PathBuf;
 use std::process::Stdio;
 
 const CANISTER_ARG: &str = "canister";
@@ -39,7 +44,39 @@ pub fn exec(env: &dyn Environment, opts: LanguageServiceOpts) -> DfxResult {
             .get_defaults()
             .get_build()
             .get_packtool();
-        let package_arguments = package_arguments::load(env.get_cache().as_ref(), packtool)?;
+
+        let mut package_arguments = package_arguments::load(env.get_cache().as_ref(), packtool)?;
+
+        // Include actor alias flags
+        let canister_names = config
+            .get_config()
+            .get_canister_names_with_dependencies(None)?;
+        let network_descriptor = create_network_descriptor(
+            env.get_config(),
+            env.get_networks_config(),
+            None, /* opts.network */
+            None,
+            LocalBindDetermination::ApplyRunningWebserverPort,
+        )?;
+        let canister_id_store = CanisterIdStore::new(&network_descriptor, env.get_config())?;
+        for canister_name in canister_names {
+            match canister_id_store.get(&canister_name) {
+                Ok(canister_id) => package_arguments.append(&mut vec![
+                    "--actor-alias".to_owned(),
+                    canister_name,
+                    Principal::to_text(&canister_id),
+                ]),
+                Err(err) => eprintln!("{}", err),
+            };
+        }
+
+        // Add IDL directory flag
+        let build_config = BuildConfig::from_config(&config)?;
+        package_arguments.append(&mut vec![
+            "--actor-idl".to_owned(),
+            (*build_config.lsp_root.to_string_lossy()).to_owned(),
+        ]);
+
         run_ide(env, main_path, package_arguments)
     } else {
         Err(anyhow!("Cannot find dfx configuration file in the current working directory. Did you forget to create one?"))
@@ -47,7 +84,7 @@ pub fn exec(env: &dyn Environment, opts: LanguageServiceOpts) -> DfxResult {
 }
 
 #[context("Failed to determine main path.")]
-fn get_main_path(config: &ConfigInterface, canister_name: Option<String>) -> DfxResult<String> {
+fn get_main_path(config: &ConfigInterface, canister_name: Option<String>) -> DfxResult<PathBuf> {
     // TODO try and point at the actual dfx.json path
     let dfx_json = CONFIG_FILE_NAME;
 
@@ -80,24 +117,20 @@ fn get_main_path(config: &ConfigInterface, canister_name: Option<String>) -> Dfx
                 }
             }
         }?;
-
-    canister
-        .extras
-        .get("main")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            error_invalid_data!(
-                "Canister {0} lacks a 'main' element in {1}",
-                canister_name,
-                dfx_json
-            )
-        })
-        .map(|s| s.to_owned())
+    if let Some(main) = canister.main {
+        Ok(main)
+    } else {
+        Err(error_invalid_data!(
+            "Canister {0} lacks a 'main' element in {1}",
+            canister_name,
+            dfx_json
+        ))
+    }
 }
 
 fn run_ide(
     env: &dyn Environment,
-    main_path: String,
+    main_path: PathBuf,
     package_arguments: PackageArguments,
 ) -> DfxResult {
     let output = env
